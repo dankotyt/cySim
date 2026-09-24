@@ -2,8 +2,9 @@
 from functools import lru_cache
 from pathlib import Path
 
+from typing import Annotated
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict, NoDecode
 
 
 class Settings(BaseSettings):
@@ -52,7 +53,7 @@ class Settings(BaseSettings):
     chunk_overlap: int = 200
 
     # Documents
-    allowed_extensions: set[str] = {".pdf", ".docx", ".txt"}
+    allowed_extensions: Annotated[set[str], NoDecode] = {".pdf", ".docx", ".txt"}
     max_upload_size_mb: int = 50
     default_tenant_id: str = "default"
     collection_prefix: str = "cybersim"

@@ -15,12 +15,12 @@ import httpx  # noqa: E402
 import pytest  # noqa: E402
 from httpx import ASGITransport  # noqa: E402
 
-from backend.app.api.v1.documents import get_service  # noqa: E402
-from backend.app.core.database import get_db  # noqa: E402
-from backend.app.main import create_app  # noqa: E402
-from backend.app.models.document import DocumentStatus  # noqa: E402
-from backend.app.services.document_service import DocumentService  # noqa: E402
-from backend.tests.fakes import (  # noqa: E402
+from app.api.v1.documents import get_service  # noqa: E402
+from app.core.database import get_db  # noqa: E402
+from app.main import create_app  # noqa: E402
+from app.models.document import DocumentStatus  # noqa: E402
+from app.services.document_service import DocumentService  # noqa: E402
+from tests.fakes import (  # noqa: E402
     FakeEmbeddingProvider,
     FakeValidator,
     FailingValidator,
