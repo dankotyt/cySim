@@ -1,6 +1,3 @@
-# docker-compose.yml
-version: "3.9"
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -29,20 +26,18 @@ services:
     container_name: cybersim-chroma
     restart: unless-stopped
     environment:
-      # Отключаем анонимную телеметрию
       ANONYMIZED_TELEMETRY: "False"
-      # Путь для persistent storage внутри контейнера
       IS_PERSISTENT: "TRUE"
-      PERSIST_DIRECTORY: "/chroma/chroma"
     ports:
-      - "8001:8000"   # наружу 8001, чтобы не конфликтовать с backend
+      - "8001:8000"
     volumes:
-      - chroma_data:/chroma/chroma
+      - chroma_data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      test: [ "CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8000" ]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 30s
     networks:
       - cybersim-net
 
