@@ -1,0 +1,11 @@
+.devctx/
+.qwen/
+.claude/
+.codex/
+.cursor/
+.mcp.json
+.summary/
+AGENTS.md
+QWEN.md
+
+.env
