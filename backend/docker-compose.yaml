@@ -1,0 +1,113 @@
+# docker-compose.yml
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cybersim-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cybersim
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: cybersim
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Скрипты инициализации выполняются при первом запуске
+      - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cybersim -d cybersim"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - cybersim-net
+
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: cybersim-chroma
+    restart: unless-stopped
+    environment:
+      # Отключаем анонимную телеметрию
+      ANONYMIZED_TELEMETRY: "False"
+      # Путь для persistent storage внутри контейнера
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: "/chroma/chroma"
+    ports:
+      - "8001:8000"   # наружу 8001, чтобы не конфликтовать с backend
+    volumes:
+      - chroma_data:/chroma/chroma
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - cybersim-net
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: cybersim-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Если будет NVIDIA GPU — раскомментировать:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    networks:
+      - cybersim-net
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cybersim-backend
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://cybersim:${POSTGRES_PASSWORD:-changeme}@postgres:5432/cybersim
+      USE_CHROMA_SERVER: "true"
+      CHROMA_HOST: chroma
+      CHROMA_PORT: 8000
+      OLLAMA_BASE_URL: http://ollama:11434
+      STORAGE_DIR: /app/data/uploads
+      QUARANTINE_DIR: /app/data/quarantine
+      MIN_DOCUMENT_CHARS: 100
+      MIN_DOCUMENT_CHUNKS: 1
+      RELEVANCE_THRESHOLD: 0.5
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - uploads_data:/app/data/uploads
+      - quarantine_data:/app/data/quarantine
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - cybersim-net
+
+volumes:
+  postgres_data:
+  chroma_data:
+  ollama_data:
+  uploads_data:
+  quarantine_data:
+
+networks:
+  cybersim-net:
+    driver: bridge
