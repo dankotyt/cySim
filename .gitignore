@@ -1,3 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+build/
+dist/
+*.egg-info/
+.installed.cfg
+*.egg
+
 .devctx/
 .qwen/
 .claude/
@@ -7,5 +18,41 @@
 .summary/
 AGENTS.md
 QWEN.md
+CLAUDE.md
 
+# Виртуальные окружения
+.venv/
+venv/
+ENV/
+env/
 .env
+summary/
+
+# Тесты и покрытие
+.pytest_cache/
+.tox/
+.coverage
+htmlcov/
+.hypothesis/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Данные проекта
+data/
+*.db
+*.sqlite3
+chroma_data/
+
+# Логи и временное
+*.log
+logs/
+tmp/
+temp/
+
+# OS
+.DS_Store
+Thumbs.db
