@@ -2,6 +2,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.v1.documents import router as documents_router
@@ -34,6 +35,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         description="Document analysis (RAG) module for CyberSim: ingest security "
         "documents and retrieve relevant rules via vector search.",
         lifespan=lifespan,
+    )
+
+    #todo в prode заменить
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     app.include_router(documents_router)

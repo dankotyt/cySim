@@ -26,7 +26,6 @@ venv/
 ENV/
 env/
 .env
-summary/
 
 # Тесты и покрытие
 .pytest_cache/
@@ -46,6 +45,9 @@ data/
 *.db
 *.sqlite3
 chroma_data/
+summary/
+parsed_docs/
+./backend/check_*
 
 # Логи и временное
 *.log

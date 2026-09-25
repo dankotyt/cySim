@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>CyberSim — загрузка документов</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f7fa;
+            color: #1a1a1a;
+        }
+        h1 { color: #2c3e50; margin-bottom: 8px; }
+        .subtitle { color: #7f8c8d; margin-bottom: 30px; }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .card h2 {
+            margin-top: 0;
+            font-size: 18px;
+            color: #34495e;
+            border-bottom: 2px solid #ecf0f1;
+            padding-bottom: 12px;
+        }
+        label { display: block; margin-bottom: 6px; font-weight: 500; font-size: 14px; }
+        input[type="text"], input[type="file"], textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #d0d7de;
+            border-radius: 6px;
+            font-size: 14px;
+            margin-bottom: 12px;
+            font-family: inherit;
+        }
+        input[type="file"] { padding: 8px; background: #fafbfc; }
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        button:hover { background: #2980b9; }
+        button:disabled { background: #bdc3c7; cursor: not-allowed; }
+        pre {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 16px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 13px;
+            line-height: 1.5;
+            max-height: 400px;
+        }
+        .status-ok { color: #27ae60; }
+        .status-err { color: #e74c3c; }
+        .row { display: flex; gap: 12px; align-items: flex-end; }
+        .row > div { flex: 1; }
+    </style>
+</head>
+<body>
+    <h1>🛡️ CyberSim — загрузка документов</h1>
+    <p class="subtitle">Загрузка, обработка и поиск по документам ИБ</p>
+
+    <!-- 1. ЗАГРУЗКА -->
+    <div class="card">
+        <h2>1. Загрузить документ</h2>
+        <label for="fileInput">Выберите файл (PDF, DOCX, TXT):</label>
+        <input type="file" id="fileInput" accept=".pdf,.docx,.txt">
+        <label for="tenantId">Tenant ID:</label>
+        <input type="text" id="tenantId" value="test">
+        <button onclick="uploadFile()">Загрузить</button>
+        <pre id="uploadResult">Результат появится здесь...</pre>
+    </div>
+
+    <!-- 2. ОБРАБОТКА -->
+    <div class="card">
+        <h2>2. Обработать документ</h2>
+        <label for="processDocId">Document ID (из шага 1):</label>
+        <input type="text" id="processDocId" placeholder="UUID из ответа загрузки">
+        <button onclick="processDocument()">Обработать</button>
+        <pre id="processResult">Результат появится здесь...</pre>
+    </div>
+
+    <!-- 3. ПОИСК -->
+    <div class="card">
+        <h2>3. Поиск по документам</h2>
+        <div class="row">
+            <div>
+                <label for="searchQuery">Запрос:</label>
+                <input type="text" id="searchQuery" value="пароли">
+            </div>
+            <div>
+                <label for="searchTenant">Tenant ID:</label>
+                <input type="text" id="searchTenant" value="test">
+            </div>
+        </div>
+        <button onclick="searchDocuments()">Искать</button>
+        <pre id="searchResult">Результат появится здесь...</pre>
+    </div>
+
+    <!-- 4. СПИСОК ДОКУМЕНТОВ -->
+    <div class="card">
+        <h2>4. Проверка состояния</h2>
+        <button onclick="checkHealth()">Проверить /health</button>
+        <button onclick="listDocuments()" style="margin-left:8px;">Список документов</button>
+        <pre id="healthResult">Результат появится здесь...</pre>
+    </div>
+
+<script>
+const API = "http://localhost:8000";
+
+async function uploadFile() {
+    const fileInput = document.getElementById('fileInput');
+    const tenantId = document.getElementById('tenantId').value;
+    const out = document.getElementById('uploadResult');
+
+    if (!fileInput.files.length) {
+        out.innerHTML = '<span class="status-err">❌ Файл не выбран</span>';
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('files', fileInput.files[0]);
+    formData.append('tenant_id', tenantId);
+
+    out.textContent = '⏳ Загрузка...';
+
+    try {
+        const res = await fetch(`${API}/api/v1/documents/upload`, {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+        out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
+
+        // Автозаполнение document_id
+        if (res.ok && data[0] && data[0].document_id) {
+            document.getElementById('processDocId').value = data[0].document_id;
+        }
+    } catch (e) {
+        out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
+    }
+}
+
+async function processDocument() {
+    const docId = document.getElementById('processDocId').value;
+    const tenantId = document.getElementById('tenantId').value;
+    const out = document.getElementById('processResult');
+
+    out.textContent = '⏳ Обработка... (может занять 10-30 секунд)';
+
+    try {
+        const res = await fetch(`${API}/api/v1/documents/process`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ document_id: docId, tenant_id: tenantId })
+        });
+        const data = await res.json();
+        out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
+    } catch (e) {
+        out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
+    }
+}
+
+async function searchDocuments() {
+    const q = document.getElementById('searchQuery').value;
+    const tenantId = document.getElementById('searchTenant').value;
+    const out = document.getElementById('searchResult');
+
+    out.textContent = '⏳ Поиск...';
+
+    try {
+        const res = await fetch(
+            `${API}/api/v1/documents/search?q=${encodeURIComponent(q)}&tenant_id=${tenantId}`
+        );
+        const data = await res.json();
+        out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
+    } catch (e) {
+        out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
+    }
+}
+
+async function checkHealth() {
+    const out = document.getElementById('healthResult');
+    try {
+        const res = await fetch(`${API}/health`);
+        const data = await res.json();
+        out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
+    } catch (e) {
+        out.innerHTML = `<span class="status-err">❌ Backend недоступен: ${e.message}</span>`;
+    }
+}
+
+async function listDocuments() {
+    const out = document.getElementById('healthResult');
+    const tenantId = document.getElementById('tenantId').value;
+    try {
+        // Пробуем получить метаданные по последнему document_id
+        const docId = document.getElementById('processDocId').value;
+        if (!docId) {
+            out.textContent = 'Введите Document ID в шаге 2';
+            return;
+        }
+        const res = await fetch(
+            `${API}/api/v1/documents/${docId}?tenant_id=${tenantId}`
+        );
+        const data = await res.json();
+        out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
+    } catch (e) {
+        out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
+    }
+}
+</script>
+</body>
+</html>
