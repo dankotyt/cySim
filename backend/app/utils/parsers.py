@@ -16,6 +16,7 @@ logger = get_logger(__name__)
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _MULTISPACE_RE = re.compile(r"[ \t]+")
 _MULTILINE_RE = re.compile(r"\n{3,}")
+_MEANINGFUL_RE = re.compile(r"[A-Za-zА-Яа-яЁё0-9]")
 
 
 @dataclass
@@ -41,9 +42,18 @@ def clean_text(text: str) -> str:
     text = _CONTROL_CHAR_RE.sub("", text)
     text = _MULTISPACE_RE.sub(" ", text)
     text = _MULTILINE_RE.sub("\n\n", text)
-    # Normalize per-line trailing whitespace.
     text = "\n".join(line.rstrip() for line in text.split("\n"))
+    text = _drop_garbage_lines(text)
     return text.strip()
+
+def _drop_garbage_lines(text: str) -> str:
+    lines = []
+    for line in text.split("\n"):
+        line = re.sub(r"[ \t]+", " ", line)
+        line = line.strip()
+        if line:
+            lines.append(line)
+    return "\n".join(lines)
 
 
 def parse_txt(content: bytes) -> ParsedDocument:
