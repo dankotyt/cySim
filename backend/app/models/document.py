@@ -105,6 +105,7 @@ class SearchResponse(BaseModel):
 
     query: str
     results: list[SearchResult]
+    message: str | None = None
 
 
 class SecurityRule(BaseModel):

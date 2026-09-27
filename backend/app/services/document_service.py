@@ -317,7 +317,12 @@ class DocumentService:
             content = Path(document.file_path).read_bytes()
             parsed: ParsedDocument = parse_file(document.filename, content)
             chunks = chunk_document(
-                parsed, document.id, document.filename, document.document_type, self.settings
+                parsed,
+                document.id,
+                document.filename,
+                document.document_type,
+                self.settings,
+                embedding_provider=self.embedding_provider,
             )
             if not chunks:
                 raise ProcessingError(f"No extractable text found in document {document_id}")
@@ -380,8 +385,15 @@ class DocumentService:
         top_k: int = 5,
         filename: str | None = None,
         document_type: DocumentType | None = None,
+        min_score: float | None = None,
     ) -> SearchResponse:
-        """Run semantic search over a tenant's vector store."""
+        """Run semantic search over a tenant's vector store.
+
+        Chunks whose cosine similarity score falls below ``min_score`` (or the
+        configured ``settings.min_search_score`` when ``min_score`` is ``None``)
+        are dropped. When nothing passes the threshold, an empty result set with
+        an explanatory ``message`` is returned.
+        """
         collection = self._collection(tenant_id)
         query_embedding = self.embedding_provider.embed_query(query)
         where = self._build_filter(filename, document_type)
@@ -398,20 +410,32 @@ class DocumentService:
         metadatas = response.get("metadatas", [[]])[0]
         distances = response.get("distances", [[]])[0]
 
+        threshold = min_score if min_score is not None else self.settings.min_search_score
+
         results: list[SearchResult] = []
         for index, chunk_id in enumerate(ids):
             metadata = metadatas[index] or {}
             distance = float(distances[index]) if index < len(distances) else 0.0
+            score = round(1.0 - distance, 6)
+            if score < threshold:
+                continue
             results.append(
                 SearchResult(
                     document_id=metadata.get("document_id", chunk_id),
                     text=documents[index] if index < len(documents) else "",
                     source=metadata.get("source", ""),
                     page=metadata.get("page", 1),
-                    score=round(1.0 - distance, 6),
+                    score=score,
                 )
             )
-        return SearchResponse(query=query, results=results)
+
+        if not results:
+            return SearchResponse(
+                query=query,
+                results=[],
+                message="Релевантных правил не найдено. Уточните запрос.",
+            )
+        return SearchResponse(query=query, results=results, message="Success")
 
     async def delete_document(
         self, session: AsyncSession, document_id: str, tenant_id: str
@@ -449,6 +473,13 @@ class DocumentService:
             top_k=top_k,
             filename=filename,
         )
+        if not response.results:
+            logger.warning(
+                "No relevant rules found for tenant=%s query=%s",
+                tenant_id,
+                query or _DEFAULT_RULES_QUERY,
+            )
+            return []
         return [
             SecurityRule(
                 title=_derive_title(result.text),

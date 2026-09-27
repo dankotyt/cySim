@@ -56,6 +56,7 @@ async def search_documents(
     top_k: int = Query(5, ge=1, le=100),
     filename: str | None = None,
     document_type: DocumentType | None = None,
+    min_score: float | None = Query(None, ge=0, le=1),
     service: DocumentService = Depends(get_service),
 ) -> SearchResponse:
     """Semantic search across a tenant's vector store."""
@@ -65,6 +66,7 @@ async def search_documents(
         top_k=top_k,
         filename=filename,
         document_type=document_type,
+        min_score=min_score,
     )
 
 

@@ -2,7 +2,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from typing import Annotated
+from typing import Annotated, Literal
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, NoDecode
 
@@ -49,8 +49,15 @@ class Settings(BaseSettings):
     # Chunking. Sizes are in characters (~4 characters == 1 token for English);
     # tune these to match the 500-1000 token / 100-200 token overlap guidance
     # for your language and model.
-    chunk_size: int = 2000
-    chunk_overlap: int = 200
+    chunk_size: int = 800
+    chunk_overlap: int = 100
+
+    # Semantic chunking (LangChain SemanticChunker). When disabled, or when the
+    # semantic splitter fails, chunk_document falls back to
+    # RecursiveCharacterTextSplitter with the chunk_size/chunk_overlap above.
+    semantic_chunking_enabled: bool = True
+    semantic_breakpoint_type: Literal["percentile", "standard_deviation", "interquartile", "gradient"] = "percentile"
+    semantic_breakpoint_amount: int = 95
 
     # Documents
     allowed_extensions: Annotated[set[str], NoDecode] = {".pdf", ".docx", ".txt"}
@@ -62,6 +69,9 @@ class Settings(BaseSettings):
     min_document_chars: int = 100
     min_document_chunks: int = 1
     relevance_threshold: float = 0.5
+
+    # Search
+    min_search_score: float = 0.5
 
     @field_validator("allowed_extensions", mode="before")
     @classmethod
