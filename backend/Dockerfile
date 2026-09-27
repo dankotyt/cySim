@@ -5,10 +5,14 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Build toolchain (hnswlib) and libmagic (python-magic) for document validation.
+# Build toolchain (hnswlib), libmagic (python-magic) for document validation,
+# and Tesseract + Poppler for scanned-PDF OCR fallback.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libmagic1 \
+    tesseract-ocr \
+    tesseract-ocr-rus \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
