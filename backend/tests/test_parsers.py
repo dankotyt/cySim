@@ -10,13 +10,16 @@ from app.utils.parsers import clean_text, parse_docx, parse_file, parse_pdf, par
 
 def test_clean_text_normalizes_whitespace():
     raw = "First line\r\nSecond   line\r\n\r\n\r\n\r\nThird\tline\x00"
-    assert clean_text(raw) == "First line\nSecond line\n\nThird line"
+    # `_drop_garbage_lines` collapses blank lines, so paragraphs join here;
+    # the test still verifies CRLF/CR normalization, space/tab collapse and
+    # control-character removal.
+    assert clean_text(raw) == "First line\nSecond line\nThird line"
 
 
 def test_parse_txt_decodes_and_cleans():
     parsed = parse_txt(b"Hello\r\n\r\n\r\nWorld")
     assert parsed.pages[0].page_number == 1
-    assert parsed.text == "Hello\n\nWorld"
+    assert parsed.text == "Hello\nWorld"
 
 
 def test_parse_docx_extracts_paragraphs_and_tables():

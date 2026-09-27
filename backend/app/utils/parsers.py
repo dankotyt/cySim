@@ -9,6 +9,8 @@ from docx import Document as DocxDocument
 from pypdf import PdfReader
 
 from ..core.logging import get_logger
+from .ocr import ocr_pdf_text
+from .text_repair import repair_russian_text
 
 logger = get_logger(__name__)
 
@@ -44,6 +46,7 @@ def clean_text(text: str) -> str:
     text = _MULTILINE_RE.sub("\n\n", text)
     text = "\n".join(line.rstrip() for line in text.split("\n"))
     text = _drop_garbage_lines(text)
+    text = repair_russian_text(text)
     return text.strip()
 
 def _drop_garbage_lines(text: str) -> str:
@@ -85,6 +88,13 @@ def parse_pdf(content: bytes) -> ParsedDocument:
         cleaned = clean_text(page.extract_text() or "")
         if cleaned:
             pages.append(PageText(page_number=page_number, text=cleaned))
+
+    if not pages:  # scanned PDF: no embedded text, fall back to OCR
+        ocr_text = ocr_pdf_text(content)
+        if ocr_text:
+            cleaned_ocr = clean_text(ocr_text)
+            if cleaned_ocr:
+                pages = [PageText(page_number=1, text=cleaned_ocr)]
 
     full_text = "\n\n".join(page.text for page in pages)
     return ParsedDocument(
