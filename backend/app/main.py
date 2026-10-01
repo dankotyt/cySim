@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.v1.documents import router as documents_router
+from app.api.v1.scenarios import router as scenarios_router
 from app.core.config import Settings, get_settings
 from app.core.database import get_database
 from app.core.logging import configure_logging
@@ -13,6 +14,12 @@ from app.services.document_service import (
     DocumentNotFoundError,
     DocumentServiceError,
     ProcessingError,
+)
+from app.services.scenario_service import (
+    NoRulesFoundError,
+    ScenarioGenerationError,
+    ScenarioNotFoundError,
+    ScenarioServiceError,
 )
 
 
@@ -47,6 +54,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.include_router(documents_router)
+    app.include_router(scenarios_router)
+
+    @app.exception_handler(NoRulesFoundError)
+    async def handle_no_rules(request: Request, exc: NoRulesFoundError) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @app.exception_handler(ScenarioNotFoundError)
+    async def handle_scenario_not_found(
+        request: Request, exc: ScenarioNotFoundError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(ScenarioGenerationError)
+    async def handle_scenario_generation(
+        request: Request, exc: ScenarioGenerationError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
+
+    @app.exception_handler(ScenarioServiceError)
+    async def handle_scenario_service(
+        request: Request, exc: ScenarioServiceError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=500, content={"detail": str(exc)})
 
     @app.exception_handler(DocumentNotFoundError)
     async def handle_not_found(request: Request, exc: DocumentNotFoundError) -> JSONResponse:
