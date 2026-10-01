@@ -23,13 +23,13 @@ CREATE TABLE IF NOT EXISTS security_rules (
     document_id  VARCHAR(36)  NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     title        VARCHAR(255) NOT NULL,
     description  TEXT         NOT NULL,
-    category     VARCHAR(64)  NOT NULL DEFAULT 'general',
+    attack_type  VARCHAR(64)  NOT NULL,
     source       VARCHAR(255) NOT NULL,
     page         INTEGER      NOT NULL DEFAULT 1,
     score        DOUBLE PRECISION NOT NULL DEFAULT 0.0,
     content_hash VARCHAR(64)  NOT NULL,
     created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    CONSTRAINT uq_security_rules_tenant_content UNIQUE (tenant_id, content_hash)
+    CONSTRAINT uq_security_rules_tenant_content_attack_type UNIQUE (tenant_id, content_hash, attack_type)
 );
 
 CREATE TABLE IF NOT EXISTS scenarios (
@@ -54,7 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_documents_tenant_status
 
 CREATE INDEX IF NOT EXISTS idx_security_rules_tenant_id ON security_rules (tenant_id);
 CREATE INDEX IF NOT EXISTS idx_security_rules_document_id ON security_rules (document_id);
-CREATE INDEX IF NOT EXISTS idx_security_rules_category    ON security_rules (category);
+CREATE INDEX IF NOT EXISTS idx_security_rules_attack_type ON security_rules (attack_type);
 
 CREATE INDEX IF NOT EXISTS idx_scenarios_tenant_id   ON scenarios (tenant_id);
 CREATE INDEX IF NOT EXISTS idx_scenarios_status      ON scenarios (status);

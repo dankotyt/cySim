@@ -1,8 +1,7 @@
 """Attack-type → RAG query mapping shared by the document and scenario services.
 
-Keys must stay in sync with the ``AttackType`` literal in
-:mod:`app.models.scenario` and the category names in
-``DocumentService._CATEGORY_KEYWORDS``.
+Keys are the canonical attack types: they must stay in sync with the
+``AttackType`` literal in :mod:`app.models.scenario`.
 """
 
 ATTACK_QUERIES: dict[str, str] = {

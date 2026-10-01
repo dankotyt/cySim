@@ -64,7 +64,7 @@ class ScenarioService:
         self, session: AsyncSession, request: GenerateScenarioRequest
     ) -> GenerateScenarioResponse:
         """Retrieve precomputed rules, generate and persist a scenario."""
-        rules = await self.rule_repository.list_by_category(
+        rules = await self.rule_repository.list_by_attack_type(
             session, request.tenant_id, request.attack_type
         )
         if not rules:

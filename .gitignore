@@ -47,6 +47,7 @@ data/
 chroma_data/
 summary/
 parsed_docs/
+history_tasks/
 ./backend/check_*
 
 # Логи и временное

@@ -195,7 +195,9 @@ async def test_extract_rules_returns_structured_rules(service, db_session):
     document_id = (await service.repository.list(db_session, "acme"))[0].id
     await service.process_document(db_session, document_id, "acme")
 
-    rules = await service.extract_rules("acme", query="password and attachment rules", top_k=3)
+    rules = await service.extract_rules(
+        "acme", query="password and attachment rules", attack_type="phishing", top_k=3
+    )
     assert rules
     assert all(rule.source == "rules.txt" for rule in rules)
     assert all(rule.title for rule in rules)

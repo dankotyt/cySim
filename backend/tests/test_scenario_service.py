@@ -20,7 +20,7 @@ def _rule(**overrides):
     defaults = dict(
         title="Не передавать пароли",
         description="Запрещено передавать учётные данные третьим лицам.",
-        category="phishing",
+        attack_type="phishing",
         source="policy.txt",
         page=1,
         score=0.9,
@@ -32,7 +32,7 @@ def _rule(**overrides):
 async def _seed_rules(
     session, tenant_id="acme", categories=("phishing",), document_id="doc-1"
 ):
-    rules = [_rule(category=category) for category in categories]
+    rules = [_rule(attack_type=category) for category in categories]
     await SecurityRuleRepository().create_many(
         session, tenant_id, document_id, rules
     )
@@ -74,7 +74,7 @@ async def test_generate_scenario_no_rules_raises(db_session):
 
 async def test_generate_scenario_limits_rules_for_llm(db_session):
     rules = [
-        _rule(category="phishing", description=f"Запрет {index}.")
+        _rule(attack_type="phishing", description=f"Запрет {index}.")
         for index in range(1, 8)
     ]
     await SecurityRuleRepository().create_many(db_session, "acme", "doc-1", rules)

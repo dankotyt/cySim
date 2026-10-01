@@ -8,7 +8,7 @@ def test_build_scenario_context_formats_rules():
         SecurityRule(
             title="Не передавать пароли",
             description="Запрещено передавать учётные данные третьим лицам.",
-            category="passwords",
+            attack_type="passwords",
             source="policy.txt",
             page=1,
             score=0.9,
@@ -16,7 +16,7 @@ def test_build_scenario_context_formats_rules():
         SecurityRule(
             title="Сообщать о фишинге",
             description="Подозрительные вложения пересылать в СБ.",
-            category="phishing",
+            attack_type="phishing",
             source="policy.txt",
             page=2,
             score=0.8,

@@ -35,94 +35,6 @@ from .document_validator import DocumentValidationError, DocumentValidator
 
 logger = get_logger(__name__)
 
-# Будет заменено на вызов LLM
-_DEFAULT_RULES_QUERY = (
-    "security rules requirements prohibitions policy obligations"
-    "правила информационной безопасности запреты требования политика "
-    "пароли аутентификация фишинг вишинг социальная инженерия "
-    "конфиденциальные данные персональные данные удаленная работа vpn "
-    "физическая безопасность пропуск инсайдер утечка "
-    "подрядчики цепочка поставок usb носитель"
-)
-
-_CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
-    # Классические категории ИБ
-    "passwords": (
-        "password", "пароль", "credential", "authentication", "mfa", "2fa",
-        "смена пароля", "сложность пароля",
-    ),
-    "phishing": (
-        "phishing", "фишинг", "attachment", "вложение", "suspicious link",
-        "подозрительн", "письмо от", "перейти по ссылке",
-    ),
-    "physical_security": (
-        "badge", "пропуск", "physical access", "физическ", "clean desk",
-        "чистый стол", "замок", "сейф",
-    ),
-    "data_handling": (
-        "confidential", "конфиденциальн", "classification", "классификац",
-        "personal data", "персональн", "коммерческая тайна", "гостайна",
-    ),
-    "remote_work": (
-        "remote", "удаленн", "vpn", "telework", "домашн", "вне офиса",
-    ),
-
-    # Социальная инженерия
-    "vishing": (
-        "звонок", "позвоните", "служба безопасности", "подтвердите код",
-        "код из sms", "назовите код", "служба поддержки", "звонил",
-        "входящий звонок", "телефонный",
-    ),
-    "pretexting": (
-        "уволен", "увольнение", "новый сотрудник", "отдел кадров",
-        "приказ", "сокращение", "перевод на другую должность",
-        "кадровый", "hr-отдел", "первый рабочий день",
-    ),
-    "baiting": (
-        "флешка", "usb", "найден", "бонус", "зарплата", "премия",
-        "бесплатн", "подарок", "акция", "скачать файл", "загрузка",
-    ),
-    "tailgating": (
-        "пропуск", "дверь", "руки заняты", "забыл карту", "придержать дверь",
-        "прошел за спиной", "посторонний", "незнакомый человек",
-    ),
-    "quid_pro_quo": (
-        "помощь", "техподдержка", "взамен", "бесплатно", "обновление",
-        "ускорю", "починю", "настрою", "предлагаю услугу",
-    ),
-    "social_media_osint": (
-        "linkedin", "должность", "проект", "конференция", "соцсет",
-        "социальные сети", "профиль", "публикац", "подписчик",
-    ),
-    "shoulder_surfing": (
-        "подсмотрел", "экран", "кафе", "самолет", "общественное место",
-        "взгляд через плечо", "рядом стоял", "метро", "аэропорт",
-    ),
-    "dumpster_diving": (
-        "мусор", "мусорн", "выброшенные", "документы в мусор",
-        "бумаги", "черновик", "корзина для бумаг",
-    ),
-
-    # Современные векторы атак
-    "supply_chain": (
-        "подрядчик", "поставщик", "партнер", "аутсорс", "третий контур",
-        "интеграция", "внешний сервис", "вендор", "контрагент",
-    ),
-    "leaked_credentials": (
-        "утечка", "слив баз", "старый пароль", "компрометация",
-        "haveibeenpwned", "темная сеть", "dark web", "утекш",
-    ),
-    "insider_threat": (
-        "инсайдер", "бывший сотрудник", "уволенный сотрудник",
-        "подрядчик с доступом", "злоупотребление доступом",
-    ),
-    "usb_drop": (
-        "usb-носитель", "разбросан", "парковка", "флешка в туалете",
-        "подброшенная флешка", "неизвестный носитель",
-    ),
-}
-
-
 class DocumentServiceError(Exception):
     """Base exception for document-service failures."""
 
@@ -362,7 +274,11 @@ class DocumentService:
 
             for attack_type, query in ATTACK_QUERIES.items():
                 rules = await self.extract_rules(
-                    tenant_id, query=query, top_k=None, document_id=document.id
+                    tenant_id,
+                    query=query,
+                    attack_type=attack_type,
+                    top_k=None,
+                    document_id=document.id,
                 )
                 if not rules:
                     logger.info(
@@ -504,34 +420,35 @@ class DocumentService:
     async def extract_rules(
         self,
         tenant_id: str,
-        query: str | None = None,
-        top_k: int | None = 10,
-        filename: str | None = None,
+        query: str,
+        attack_type: str,
         document_id: str | None = None,
+        top_k: int | None = 10,
     ) -> list[SecurityRule]:
         """Retrieve rule-relevant chunks and return them as structured rules.
 
-        This is the primary integration point for the scenario generation module.
+        ``attack_type`` is the ``ATTACK_QUERIES`` key the chunks were found for;
+        it is stamped onto every returned rule (no keyword classification).
         """
         response = await self.search(
-            query or _DEFAULT_RULES_QUERY,
+            query,
             tenant_id,
             top_k=top_k,
-            filename=filename,
             document_id=document_id,
         )
         if not response.results:
             logger.warning(
-                "No relevant rules found for tenant=%s query=%s",
+                "No relevant rules found for tenant=%s attack_type=%s document_id=%s",
                 tenant_id,
-                query or _DEFAULT_RULES_QUERY,
+                attack_type,
+                document_id,
             )
             return []
         return [
             SecurityRule(
                 title=_derive_title(result.text),
                 description=result.text,
-                category=_classify_category(result.text),
+                attack_type=attack_type,
                 source=result.source,
                 page=result.page,
                 score=result.score,
@@ -554,14 +471,6 @@ class DocumentService:
 def _derive_title(text: str) -> str:
     line = next((line.strip() for line in text.splitlines() if line.strip()), "Rule")
     return line[:80]
-
-
-def _classify_category(text: str) -> str:
-    lowered = text.lower()
-    for category, keywords in _CATEGORY_KEYWORDS.items():
-        if any(keyword in lowered for keyword in keywords):
-            return category
-    return "general"
 
 
 _RULE_MARKER_RE = re.compile(r"(?:^|\n)[ \t]*(?:[\u2022\u2212\u2013\-]|\d{1,2}[.)])[ \t]+")
@@ -589,7 +498,7 @@ def _split_rules(rules: list[SecurityRule]) -> list[SecurityRule]:
                 SecurityRule(
                     title=_derive_title(part),
                     description=part,
-                    category=rule.category,
+                    attack_type=rule.attack_type,
                     source=rule.source,
                     page=rule.page,
                     score=rule.score,

@@ -13,7 +13,7 @@ _NO_RULES_MESSAGE = "Релевантные правила не найдены."
 def _format_rule(index: int, rule: SecurityRule) -> str:
     """Format a single rule as a numbered, structured block."""
     return (
-        f"Правило {index} [{rule.category}]\n"
+        f"Правило {index} [{rule.attack_type}]\n"
         f"Название: {rule.title}\n"
         f"Содержание: {rule.description}\n"
         f"Источник: {rule.source} (стр. {rule.page}, score={rule.score:.3f})"

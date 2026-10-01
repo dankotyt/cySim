@@ -115,7 +115,7 @@ class SecurityRule(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str
     description: str
-    category: str = "general"
+    attack_type: str
     source: str
     page: int
     score: float
