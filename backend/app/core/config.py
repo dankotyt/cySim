@@ -46,6 +46,15 @@ class Settings(BaseSettings):
     sentence_transformer_model: str = "BAAI/bge-m3"
     embedding_batch_size: int = 32
 
+    # LLM (scenario generation)
+    llm_provider: Literal["ollama", "openai"] = "ollama"
+    llm_model: str = "qwen3:8b-q4_K_M"
+    llm_base_url: str = "http://localhost:11434"
+    llm_api_key: str | None = None
+    llm_temperature: float = 0.7
+    llm_num_ctx: int = 8192
+    llm_timeout: int = 120
+
     # Chunking. Sizes are in characters (~4 characters == 1 token for English);
     # tune these to match the 500-1000 token / 100-200 token overlap guidance
     # for your language and model.
