@@ -18,16 +18,18 @@ CREATE TABLE IF NOT EXISTS documents (
 );
 
 CREATE TABLE IF NOT EXISTS security_rules (
-    id          VARCHAR(36)  PRIMARY KEY,
-    tenant_id   VARCHAR(255) NOT NULL,
-    document_id VARCHAR(36)  REFERENCES documents(id) ON DELETE CASCADE,
-    title       VARCHAR(255) NOT NULL,
-    description TEXT         NOT NULL,
-    category    VARCHAR(64)  NOT NULL DEFAULT 'general',
-    source      VARCHAR(255) NOT NULL,
-    page        INTEGER      NOT NULL DEFAULT 1,
-    score       DOUBLE PRECISION NOT NULL DEFAULT 0.0,
-    created_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+    id           VARCHAR(36)  PRIMARY KEY,
+    tenant_id    VARCHAR(255) NOT NULL,
+    document_id  VARCHAR(36)  NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    title        VARCHAR(255) NOT NULL,
+    description  TEXT         NOT NULL,
+    category     VARCHAR(64)  NOT NULL DEFAULT 'general',
+    source       VARCHAR(255) NOT NULL,
+    page         INTEGER      NOT NULL DEFAULT 1,
+    score        DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    content_hash VARCHAR(64)  NOT NULL,
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT uq_security_rules_tenant_content UNIQUE (tenant_id, content_hash)
 );
 
 CREATE TABLE IF NOT EXISTS scenarios (
@@ -35,6 +37,10 @@ CREATE TABLE IF NOT EXISTS scenarios (
     tenant_id   VARCHAR(255) NOT NULL,
     title       VARCHAR(255) NOT NULL,
     description TEXT,
+    attack_type VARCHAR(64)  NOT NULL DEFAULT 'phishing',
+    context     JSON         NOT NULL,
+    steps       JSON         NOT NULL,
+    scoring     JSON         NOT NULL,
     status      VARCHAR(16)  NOT NULL DEFAULT 'draft',
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
@@ -50,5 +56,6 @@ CREATE INDEX IF NOT EXISTS idx_security_rules_tenant_id ON security_rules (tenan
 CREATE INDEX IF NOT EXISTS idx_security_rules_document_id ON security_rules (document_id);
 CREATE INDEX IF NOT EXISTS idx_security_rules_category    ON security_rules (category);
 
-CREATE INDEX IF NOT EXISTS idx_scenarios_tenant_id ON scenarios (tenant_id);
-CREATE INDEX IF NOT EXISTS idx_scenarios_status     ON scenarios (status);
+CREATE INDEX IF NOT EXISTS idx_scenarios_tenant_id   ON scenarios (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_scenarios_status      ON scenarios (status);
+CREATE INDEX IF NOT EXISTS idx_scenarios_attack_type ON scenarios (attack_type);

@@ -26,9 +26,11 @@ from ..models.document import (
     UploadResponse,
 )
 from ..repositories.document_repository import DocumentRepository
+from ..repositories.security_rule_repository import SecurityRuleRepository
 from ..utils.chunking import chunk_document
 from ..utils.embeddings import EmbeddingProvider, get_embedding_provider
 from ..utils.parsers import ParsedDocument, parse_file
+from .attack_queries import ATTACK_QUERIES
 from .document_validator import DocumentValidationError, DocumentValidator
 
 logger = get_logger(__name__)
@@ -150,11 +152,15 @@ class DocumentService:
         embedding_provider: EmbeddingProvider | None = None,
         chroma_client: ClientAPI | None = None,
         validator: DocumentValidator | None = None,
+        security_rule_repository: SecurityRuleRepository | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.settings.ensure_directories()
 
         self.repository = DocumentRepository()
+        self.security_rule_repository = (
+            security_rule_repository or SecurityRuleRepository()
+        )
         self.embedding_provider = embedding_provider or get_embedding_provider(self.settings)
         self.validator = validator or DocumentValidator(self.settings, self.embedding_provider)
         self._client = chroma_client or self._build_chroma_client()
@@ -222,13 +228,17 @@ class DocumentService:
 
     @staticmethod
     def _build_filter(
-        filename: str | None, document_type: DocumentType | None
+        filename: str | None,
+        document_type: DocumentType | None,
+        document_id: str | None = None,
     ) -> dict[str, str] | None:
         conditions: dict[str, str] = {}
         if filename:
             conditions["source"] = filename
         if document_type:
             conditions["document_type"] = document_type.value
+        if document_id:
+            conditions["document_id"] = document_id
         return conditions or None
 
     def _move_to_quarantine(self, document: Document) -> None:
@@ -344,6 +354,36 @@ class DocumentService:
                 metadatas=[self._chunk_metadata(chunk) for chunk in chunks],
             )
 
+            # Idempotency on reprocessing: drop this document's previously
+            # extracted rules before re-deriving them from its own chunks.
+            await self.security_rule_repository.delete_by_document(
+                session, document.id
+            )
+
+            for attack_type, query in ATTACK_QUERIES.items():
+                rules = await self.extract_rules(
+                    tenant_id, query=query, top_k=None, document_id=document.id
+                )
+                if not rules:
+                    logger.info(
+                        "No rules for attack_type=%s tenant=%s document_id=%s",
+                        attack_type,
+                        tenant_id,
+                        document.id,
+                    )
+                    continue
+                rules = _split_rules(rules)
+                await self.security_rule_repository.create_many(
+                    session, tenant_id, document.id, rules
+                )
+                logger.info(
+                    "Extracted %d rules for attack_type=%s tenant=%s document_id=%s",
+                    len(rules),
+                    attack_type,
+                    tenant_id,
+                    document.id,
+                )
+
             document.page_count = len(parsed.pages)
             document.chunk_count = len(chunks)
             document.status = DocumentStatus.PROCESSED
@@ -382,9 +422,10 @@ class DocumentService:
         self,
         query: str,
         tenant_id: str,
-        top_k: int = 5,
+        top_k: int | None = 5,
         filename: str | None = None,
         document_type: DocumentType | None = None,
+        document_id: str | None = None,
         min_score: float | None = None,
     ) -> SearchResponse:
         """Run semantic search over a tenant's vector store.
@@ -393,14 +434,18 @@ class DocumentService:
         configured ``settings.min_search_score`` when ``min_score`` is ``None``)
         are dropped. When nothing passes the threshold, an empty result set with
         an explanatory ``message`` is returned.
+
+        When ``top_k`` is ``None``, every chunk in the collection is considered
+        (used for precomputed rule extraction).
         """
         collection = self._collection(tenant_id)
         query_embedding = self.embedding_provider.embed_query(query)
-        where = self._build_filter(filename, document_type)
+        where = self._build_filter(filename, document_type, document_id)
 
+        n_results = top_k if top_k is not None else max(collection.count(), 1)
         response = collection.query(
             query_embeddings=[query_embedding],
-            n_results=top_k,
+            n_results=n_results,
             where=where,
             include=["documents", "metadatas", "distances"],
         )
@@ -460,8 +505,9 @@ class DocumentService:
         self,
         tenant_id: str,
         query: str | None = None,
-        top_k: int = 10,
+        top_k: int | None = 10,
         filename: str | None = None,
+        document_id: str | None = None,
     ) -> list[SecurityRule]:
         """Retrieve rule-relevant chunks and return them as structured rules.
 
@@ -472,6 +518,7 @@ class DocumentService:
             tenant_id,
             top_k=top_k,
             filename=filename,
+            document_id=document_id,
         )
         if not response.results:
             logger.warning(
@@ -515,6 +562,40 @@ def _classify_category(text: str) -> str:
         if any(keyword in lowered for keyword in keywords):
             return category
     return "general"
+
+
+_RULE_MARKER_RE = re.compile(r"(?:^|\n)[ \t]*(?:[\u2022\u2212\u2013\-]|\d{1,2}[.)])[ \t]+")
+
+
+def _split_rule_text(text: str) -> list[str]:
+    """Split a chunk bundling several enumerated rules into separate texts."""
+    stripped = text.strip()
+    if not stripped:
+        return []
+    pieces = [part.strip() for part in _RULE_MARKER_RE.split(stripped) if part.strip()]
+    return pieces or [stripped]
+
+
+def _split_rules(rules: list[SecurityRule]) -> list[SecurityRule]:
+    """Expand rules whose description bundles multiple enumerated rules."""
+    expanded: list[SecurityRule] = []
+    for rule in rules:
+        parts = _split_rule_text(rule.description)
+        if len(parts) == 1:
+            expanded.append(rule)
+            continue
+        for part in parts:
+            expanded.append(
+                SecurityRule(
+                    title=_derive_title(part),
+                    description=part,
+                    category=rule.category,
+                    source=rule.source,
+                    page=rule.page,
+                    score=rule.score,
+                )
+            )
+    return expanded
 
 
 _service: DocumentService | None = None

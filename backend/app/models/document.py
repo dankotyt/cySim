@@ -1,4 +1,5 @@
 """Pydantic models for documents, chunks and search results."""
+import uuid
 from datetime import datetime, timezone
 from enum import Enum
 
@@ -111,12 +112,14 @@ class SearchResponse(BaseModel):
 class SecurityRule(BaseModel):
     """A structured security rule extracted from retrieved chunks."""
 
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str
     description: str
     category: str = "general"
     source: str
     page: int
     score: float
+    created_at: datetime = Field(default_factory=_utcnow)
 
 
 class DeleteResponse(BaseModel):
