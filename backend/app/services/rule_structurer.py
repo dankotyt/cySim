@@ -119,7 +119,7 @@ class RuleStructurer:
             f"Извлеки правила и верни JSON в указанном формате."
         )
 
-    def structure(
+    async def structure(
         self, chunks: list[Chunk], tenant_id: str, document_id: str
     ) -> StructureResult:
         """Batch chunks through the LLM and return validated, deduped rules."""
@@ -147,7 +147,7 @@ class RuleStructurer:
             batch_started = time.perf_counter()
             try:
                 prompt = self._build_prompt(batch, used_topics)
-                raw = self.session_manager.generate(
+                raw = await self.session_manager.generate(
                     prompt, system=self._system_prompt(), anchor=used_topics
                 )
                 parsed = self._parse(raw)

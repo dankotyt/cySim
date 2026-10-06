@@ -1,4 +1,5 @@
 """Document ingestion, parsing, chunking, storage and retrieval."""
+import asyncio
 import shutil
 import time
 import uuid
@@ -172,7 +173,7 @@ class DocumentService:
         target_dir = self.settings.storage_dir / tenant_id / document_id
         target_dir.mkdir(parents=True, exist_ok=True)
         file_path = target_dir / filename
-        file_path.write_bytes(content)
+        await asyncio.to_thread(file_path.write_bytes, content)
 
         document = Document(
             id=document_id,
@@ -199,9 +200,14 @@ class DocumentService:
         started = time.perf_counter()
         failed_marked = False
         try:
-            content = Path(document.file_path).read_bytes()
-            parsed: ParsedDocument = parse_file(document.filename, content)
-            chunks = chunk_document(
+            content = await asyncio.to_thread(
+                Path(document.file_path).read_bytes
+            )
+            parsed: ParsedDocument = await asyncio.to_thread(
+                parse_file, document.filename, content
+            )
+            chunks = await asyncio.to_thread(
+                chunk_document,
                 parsed,
                 document.id,
                 document.filename,
@@ -236,7 +242,7 @@ class DocumentService:
                 session, tenant_id, chunks
             )
 
-            result = self.rule_structurer.structure(
+            result = await self.rule_structurer.structure(
                 chunks, tenant_id, document.id
             )
             await self.security_rule_repository.create_many(

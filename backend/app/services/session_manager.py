@@ -55,7 +55,7 @@ class SessionManager:
         )
         return f"{system}\n\n{anchor_text}" if system else anchor_text
 
-    def generate(
+    async def generate(
         self,
         prompt: str,
         *,
@@ -77,6 +77,6 @@ class SessionManager:
             self._current_tokens = 0
             system = self._with_anchor(system, anchor)
 
-        response = self._llm_provider.generate(prompt, system=system)
+        response = await self._llm_provider.generate(prompt, system=system)
         self._current_tokens += new_tokens + self._estimate_tokens(response)
         return response

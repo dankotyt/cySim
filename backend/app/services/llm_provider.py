@@ -1,4 +1,4 @@
-"""LLM backends for scenario generation (Ollama + OpenAI-compatible APIs)."""
+"""Async LLM backends for scenario generation (Ollama + OpenAI-compatible)."""
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -14,11 +14,11 @@ class LLMProvider(ABC):
     name: str = "base"
 
     @abstractmethod
-    def generate(self, prompt: str, **kwargs: Any) -> str:
+    async def generate(self, prompt: str, **kwargs: Any) -> str:
         """Generate a completion for ``prompt`` and return the raw text."""
 
     @abstractmethod
-    def is_available(self) -> bool:
+    async def is_available(self) -> bool:
         """Return ``True`` when the backend is reachable."""
 
 
@@ -38,18 +38,18 @@ class OllamaLLMProvider(LLMProvider):
         import ollama  # local import to keep the OpenAI path dependency-free
 
         self.model = model
-        self._client = ollama.Client(host=base_url, timeout=timeout)
+        self._client = ollama.AsyncClient(host=base_url, timeout=timeout)
         self._temperature = temperature
         self._num_ctx = num_ctx
 
-    def generate(self, prompt: str, **kwargs: Any) -> str:
+    async def generate(self, prompt: str, **kwargs: Any) -> str:
         system = kwargs.pop("system", None)
         messages: list[dict[str, str]] = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        response = self._client.chat(
+        response = await self._client.chat(
             model=self.model,
             messages=messages,
             options={
@@ -59,9 +59,9 @@ class OllamaLLMProvider(LLMProvider):
         )
         return response["message"]["content"]
 
-    def is_available(self) -> bool:
+    async def is_available(self) -> bool:
         try:
-            self._client.list()
+            await self._client.list()
             return True
         except Exception as exc:  # noqa: BLE001 - availability check must not raise
             logger.warning("Ollama LLM backend unavailable: %s", exc)
@@ -96,7 +96,7 @@ class OpenAICompatibleProvider(LLMProvider):
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
 
-    def generate(self, prompt: str, **kwargs: Any) -> str:
+    async def generate(self, prompt: str, **kwargs: Any) -> str:
         system = kwargs.pop("system", None)
         messages: list[dict[str, str]] = []
         if system:
@@ -108,8 +108,8 @@ class OpenAICompatibleProvider(LLMProvider):
             "messages": messages,
             "temperature": self._temperature,
         }
-        with self._httpx.Client(timeout=self._timeout) as client:
-            response = client.post(
+        async with self._httpx.AsyncClient(timeout=self._timeout) as client:
+            response = await client.post(
                 f"{self.base_url}/chat/completions",
                 headers=self._headers(),
                 json=payload,
@@ -117,10 +117,10 @@ class OpenAICompatibleProvider(LLMProvider):
             response.raise_for_status()
             return response.json()["choices"][0]["message"]["content"]
 
-    def is_available(self) -> bool:
+    async def is_available(self) -> bool:
         try:
-            with self._httpx.Client(timeout=self._timeout) as client:
-                response = client.get(
+            async with self._httpx.AsyncClient(timeout=self._timeout) as client:
+                response = await client.get(
                     f"{self.base_url}/models", headers=self._headers()
                 )
                 return response.status_code == 200
