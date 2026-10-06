@@ -27,12 +27,8 @@ pytesseract>=0.3.10
 pdf2image>=1.16.0
 Pillow>=10.0.0
 
-# Embeddings (Ollama is the primary, lightweight backend)
+# LLM backend (Ollama serving Qwen 3)
 ollama>=0.2
-
-# Optional fallback embedding backend. Pulls in PyTorch (~2 GB) and is only
-# required when you do NOT run Ollama locally. Uncomment to enable:
-# sentence-transformers>=3.0
 
 # Testing
 pytest>=8.0
