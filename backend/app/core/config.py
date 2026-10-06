@@ -57,13 +57,13 @@ class Settings(BaseSettings):
     # Documents
     allowed_extensions: Annotated[set[str], NoDecode] = {".pdf", ".docx", ".txt"}
     max_upload_size_mb: int = 50
-    default_tenant_id: str = "default"
 
     # Validation
     min_document_chars: int = 100
     min_document_chunks: int = 1
 
-    # Search
+    # Search: pg_trgm similarity threshold (0..1) applied when ranking chunks
+    # from document_chunks; chunks below this score are dropped.
     min_search_score: float = 0.5
 
     @field_validator("allowed_extensions", mode="before")
