@@ -179,14 +179,17 @@ class ScenarioService:
 
         for attack_type in attack_types:
             try:
-                response = await self.generate_scenario(
-                    session,
-                    GenerateScenarioRequest(
-                        tenant_id=request.tenant_id,
-                        attack_type=attack_type,
-                        department=request.department,
-                    ),
-                )
+                # Isolate each attack type in its own savepoint so a failure in
+                # one does not poison the session for the remaining iterations.
+                async with session.begin_nested():
+                    response = await self.generate_scenario(
+                        session,
+                        GenerateScenarioRequest(
+                            tenant_id=request.tenant_id,
+                            attack_type=attack_type,
+                            department=request.department,
+                        ),
+                    )
             except NoRulesFoundError:
                 skipped.append(attack_type)
                 logger.warning(
