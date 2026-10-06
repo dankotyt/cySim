@@ -39,7 +39,7 @@ class ScenarioRepository:
             context=ScenarioContext.model_validate(orm.context),
             steps=[ScenarioStep.model_validate(step) for step in orm.steps],
             scoring=ScenarioScoring.model_validate(orm.scoring),
-            department=orm.department,
+            department=orm.department or "default",
             topics_used=list(orm.topics_used or []),
             created_at=orm.created_at,
         )

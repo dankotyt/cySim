@@ -68,7 +68,7 @@ class Scenario(BaseModel):
     context: ScenarioContext
     steps: list[ScenarioStep]
     scoring: ScenarioScoring
-    department: str | None = None
+    department: str = "default"
     topics_used: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utcnow)
 
