@@ -38,6 +38,15 @@ CREATE TABLE IF NOT EXISTS missing_references (
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS departments (
+    id             VARCHAR(36)  PRIMARY KEY,
+    tenant_id      VARCHAR(255) NOT NULL,
+    name           VARCHAR(255) NOT NULL,
+    allowed_topics JSON         NOT NULL DEFAULT '[]'::json,
+    created_at     TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT uq_departments_tenant_name UNIQUE (tenant_id, name)
+);
+
 CREATE TABLE IF NOT EXISTS scenarios (
     id          VARCHAR(36)  PRIMARY KEY,
     tenant_id   VARCHAR(255) NOT NULL,
@@ -47,6 +56,8 @@ CREATE TABLE IF NOT EXISTS scenarios (
     context     JSON         NOT NULL,
     steps       JSON         NOT NULL,
     scoring     JSON         NOT NULL,
+    department  VARCHAR(255),
+    topics_used JSON         NOT NULL DEFAULT '[]'::json,
     status      VARCHAR(16)  NOT NULL DEFAULT 'draft',
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
@@ -62,6 +73,8 @@ CREATE INDEX IF NOT EXISTS idx_security_rules_tenant_id ON security_rules (tenan
 CREATE INDEX IF NOT EXISTS idx_security_rules_document_id ON security_rules (document_id);
 
 CREATE INDEX IF NOT EXISTS idx_missing_references_document_id ON missing_references (document_id);
+
+CREATE INDEX IF NOT EXISTS idx_departments_tenant_id ON departments (tenant_id);
 
 CREATE INDEX IF NOT EXISTS idx_scenarios_tenant_id   ON scenarios (tenant_id);
 CREATE INDEX IF NOT EXISTS idx_scenarios_status      ON scenarios (status);
