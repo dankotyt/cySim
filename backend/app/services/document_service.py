@@ -212,7 +212,6 @@ class DocumentService:
                 document.filename,
                 document.document_type,
                 self.settings,
-                embedding_provider=self.embedding_provider,
             )
             if not chunks:
                 raise ProcessingError(f"No extractable text found in document {document_id}")

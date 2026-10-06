@@ -59,13 +59,6 @@ class Settings(BaseSettings):
     chunk_size: int = 800
     chunk_overlap: int = 100
 
-    # Semantic chunking (LangChain SemanticChunker). When disabled, or when the
-    # semantic splitter fails, chunk_document falls back to
-    # RecursiveCharacterTextSplitter with the chunk_size/chunk_overlap above.
-    semantic_chunking_enabled: bool = True
-    semantic_breakpoint_type: Literal["percentile", "standard_deviation", "interquartile", "gradient"] = "percentile"
-    semantic_breakpoint_amount: int = 95
-
     # Documents
     allowed_extensions: Annotated[set[str], NoDecode] = {".pdf", ".docx", ".txt"}
     max_upload_size_mb: int = 50
