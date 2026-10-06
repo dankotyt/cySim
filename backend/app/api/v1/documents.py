@@ -7,6 +7,8 @@ from ...models.document import (
     DeleteResponse,
     Document,
     DocumentType,
+    MissingReference,
+    MissingReferencesClearResponse,
     ProcessRequest,
     ProcessResponse,
     SearchResponse,
@@ -68,6 +70,29 @@ async def search_documents(
         document_type=document_type,
         min_score=min_score,
     )
+
+
+@router.get("/missing-references", response_model=list[MissingReference])
+async def list_missing_references(
+    tenant_id: str = "default",
+    session: AsyncSession = Depends(get_db),
+    service: DocumentService = Depends(get_service),
+) -> list[MissingReference]:
+    """List internal documents referenced by rules but not yet uploaded."""
+    return await service.list_missing_references(session, tenant_id)
+
+
+@router.delete(
+    "/missing-references", response_model=MissingReferencesClearResponse
+)
+async def clear_missing_references(
+    tenant_id: str = "default",
+    session: AsyncSession = Depends(get_db),
+    service: DocumentService = Depends(get_service),
+) -> MissingReferencesClearResponse:
+    """Remove every missing-reference record for a tenant."""
+    deleted = await service.clear_missing_references(session, tenant_id)
+    return MissingReferencesClearResponse(deleted=deleted)
 
 
 @router.get("/{document_id}", response_model=Document)

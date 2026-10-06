@@ -122,6 +122,23 @@ class SecurityRule(BaseModel):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+class MissingReference(BaseModel):
+    """An internal document referenced by a rule but not yet uploaded."""
+
+    id: str
+    tenant_id: str
+    document_id: str
+    reference: str
+    section: str
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class MissingReferencesClearResponse(BaseModel):
+    """Result of clearing missing references for a tenant."""
+
+    deleted: int
+
+
 class DeleteResponse(BaseModel):
     """Result of a document deletion."""
 

@@ -16,6 +16,7 @@ from app.services.document_service import (
     ProcessingError,
 )
 from app.services.scenario_service import (
+    DepartmentNotFoundError,
     NoRulesFoundError,
     ScenarioGenerationError,
     ScenarioNotFoundError,
@@ -59,6 +60,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(NoRulesFoundError)
     async def handle_no_rules(request: Request, exc: NoRulesFoundError) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+    @app.exception_handler(DepartmentNotFoundError)
+    async def handle_department_not_found(
+        request: Request, exc: DepartmentNotFoundError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
 
     @app.exception_handler(ScenarioNotFoundError)
     async def handle_scenario_not_found(

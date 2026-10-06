@@ -6,6 +6,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.db_models import MissingReferenceORM
+from ..models.document import MissingReference
 
 
 class MissingReferenceRepository:
@@ -22,6 +23,17 @@ class MissingReferenceRepository:
             reference=reference,
             section=section,
             created_at=datetime.now(timezone.utc),
+        )
+
+    @staticmethod
+    def _to_reference(orm: MissingReferenceORM) -> MissingReference:
+        return MissingReference(
+            id=orm.id,
+            tenant_id=orm.tenant_id,
+            document_id=orm.document_id,
+            reference=orm.reference,
+            section=orm.section,
+            created_at=orm.created_at,
         )
 
     async def create(
@@ -49,12 +61,33 @@ class MissingReferenceRepository:
             for orm in result.scalars()
         ]
 
+    async def list_by_tenant(
+        self, session: AsyncSession, tenant_id: str
+    ) -> list[MissingReference]:
+        """Return every missing reference for a tenant."""
+        statement = select(MissingReferenceORM).where(
+            MissingReferenceORM.tenant_id == tenant_id
+        )
+        result = await session.execute(statement)
+        return [self._to_reference(orm) for orm in result.scalars()]
+
     async def delete_by_document(
         self, session: AsyncSession, document_id: str
     ) -> int:
         """Delete every reference for a document and return the number removed."""
         statement = delete(MissingReferenceORM).where(
             MissingReferenceORM.document_id == document_id
+        )
+        result = await session.execute(statement)
+        await session.flush()
+        return result.rowcount
+
+    async def delete_by_tenant(
+        self, session: AsyncSession, tenant_id: str
+    ) -> int:
+        """Delete every reference for a tenant and return the number removed."""
+        statement = delete(MissingReferenceORM).where(
+            MissingReferenceORM.tenant_id == tenant_id
         )
         result = await session.execute(statement)
         await session.flush()

@@ -14,6 +14,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -92,6 +93,26 @@ class MissingReferenceORM(Base):
     )
 
 
+class DepartmentORM(Base):
+    """Organisational unit with a topic allowlist."""
+
+    __tablename__ = "departments"
+    __table_args__ = (
+        Index("idx_departments_tenant_id", "tenant_id"),
+        UniqueConstraint(
+            "tenant_id", "name", name="uq_departments_tenant_name"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    allowed_topics: Mapped[list] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+
+
 class ScenarioORM(Base):
     """Training scenario generated from security rules and documents."""
 
@@ -105,6 +126,8 @@ class ScenarioORM(Base):
     context: Mapped[dict] = mapped_column(JSON, nullable=False)
     steps: Mapped[list] = mapped_column(JSON, nullable=False)
     scoring: Mapped[dict] = mapped_column(JSON, nullable=False)
+    department: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    topics_used: Mapped[list] = mapped_column(JSON, nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="draft")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow

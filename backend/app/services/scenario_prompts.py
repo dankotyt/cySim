@@ -85,10 +85,12 @@ _FEW_SHOT_EXAMPLE = """{
 }"""
 
 
-def build_scenario_prompt(context: str, attack_type: str) -> str:
+def build_scenario_prompt(
+    context: str, attack_type: str, department: str
+) -> str:
     """Assemble the per-request generation prompt."""
     return f"""\
-Создай учебный сценарий атаки типа «{attack_type}».
+Создай учебный сценарий атаки типа «{attack_type}» для отдела «{department}».
 
 ## Правила компании (контекст)
 {context}
@@ -103,7 +105,9 @@ created_at добавляются системой — их указывать �
 {_FEW_SHOT_EXAMPLE}
 
 ## Задание
-Сгенерируй сценарий атаки типа «{attack_type}» на основе приведённых правил компании.
+Сгенерируй сценарий атаки типа «{attack_type}» для отдела «{department}» на основе
+приведённых правил компании. Используй ТОЛЬКО переданные правила — не выдумывай
+факты и не добавляй правила, которых нет в контексте.
 steps — от 3 до 5 шагов. В scoring задай max_points как сумму баллов всех шагов,
 passing_score — порог, который сотрудник должен набрать для успешного прохождения
 (примерно 60–70% от max_points). Дай ровно 2–4 действия (actions) на каждый шаг,

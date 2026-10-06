@@ -24,6 +24,8 @@ class ScenarioRepository:
             context=scenario.context.model_dump(),
             steps=[step.model_dump() for step in scenario.steps],
             scoring=scenario.scoring.model_dump(),
+            department=scenario.department,
+            topics_used=list(scenario.topics_used),
             status="generated",
         )
 
@@ -37,6 +39,8 @@ class ScenarioRepository:
             context=ScenarioContext.model_validate(orm.context),
             steps=[ScenarioStep.model_validate(step) for step in orm.steps],
             scoring=ScenarioScoring.model_validate(orm.scoring),
+            department=orm.department,
+            topics_used=list(orm.topics_used or []),
             created_at=orm.created_at,
         )
 

@@ -20,6 +20,7 @@ from ..models.document import (
     DocumentStatus,
     DocumentType,
     MetricsResponse,
+    MissingReference,
     ProcessResponse,
     SearchResponse,
     SearchResult,
@@ -435,6 +436,22 @@ class DocumentService:
         """Read structured rules from ``security_rules`` by optional filters."""
         return await self.security_rule_repository.list_by_filters(
             session, tenant_id, topic=topic, section=section
+        )
+
+    async def list_missing_references(
+        self, session: AsyncSession, tenant_id: str
+    ) -> list[MissingReference]:
+        """Return every missing internal-document reference for a tenant."""
+        return await self.missing_reference_repository.list_by_tenant(
+            session, tenant_id
+        )
+
+    async def clear_missing_references(
+        self, session: AsyncSession, tenant_id: str
+    ) -> int:
+        """Delete every missing reference for a tenant and return the count."""
+        return await self.missing_reference_repository.delete_by_tenant(
+            session, tenant_id
         )
 
     async def _document_exists(

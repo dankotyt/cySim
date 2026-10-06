@@ -90,6 +90,8 @@ class Scenario(BaseModel):
     context: ScenarioContext
     steps: list[ScenarioStep]
     scoring: ScenarioScoring
+    department: str | None = None
+    topics_used: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -98,7 +100,7 @@ class GenerateScenarioRequest(BaseModel):
 
     tenant_id: str = "default"
     attack_type: AttackType
-    top_k_rules: int = Field(5, ge=1, le=50)
+    department: str = "default"
 
 
 class GenerateScenarioResponse(BaseModel):
@@ -110,10 +112,11 @@ class GenerateScenarioResponse(BaseModel):
 
 
 class BatchGenerateRequest(BaseModel):
-    """Request body for generating scenarios for every attack type."""
+    """Request body for generating scenarios for a set of attack types."""
 
-    tenant_id: str
-    top_k_rules: int = 5
+    tenant_id: str = "default"
+    department: str = "default"
+    attack_types: list[AttackType] | None = None
 
 
 class BatchGenerateResponse(BaseModel):
