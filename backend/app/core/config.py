@@ -6,6 +6,9 @@ from typing import Annotated, Literal
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, NoDecode
 
+# Default tenant id used as a fallback when a request does not specify one.
+DEFAULT_TENANT_ID = "default"
+
 
 class Settings(BaseSettings):
     """Central settings for the document analysis module.

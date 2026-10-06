@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from ..core.config import DEFAULT_TENANT_ID
 from ..core.topics import ATTACK_TYPES, AttackType
 
 # The interaction channel of a single scenario step.
@@ -75,7 +76,7 @@ class Scenario(BaseModel):
 class GenerateScenarioRequest(BaseModel):
     """Request body for scenario generation."""
 
-    tenant_id: str = "default"
+    tenant_id: str = DEFAULT_TENANT_ID
     attack_type: AttackType
     department: str = "default"
 
@@ -91,7 +92,7 @@ class GenerateScenarioResponse(BaseModel):
 class BatchGenerateRequest(BaseModel):
     """Request body for generating scenarios for a set of attack types."""
 
-    tenant_id: str = "default"
+    tenant_id: str
     department: str = "default"
     attack_types: list[AttackType] | None = None
 

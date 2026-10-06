@@ -5,6 +5,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator
 
+from ..core.config import DEFAULT_TENANT_ID
 from ..core.topics import ALLOWED_TOPICS
 
 
@@ -59,7 +60,7 @@ class ProcessRequest(BaseModel):
     """Request body for triggering document processing."""
 
     document_id: str
-    tenant_id: str = "default"
+    tenant_id: str = DEFAULT_TENANT_ID
 
 
 class ProcessResponse(BaseModel):
@@ -87,7 +88,7 @@ class SearchQuery(BaseModel):
     """Request model for semantic search."""
 
     query: str
-    tenant_id: str = "default"
+    tenant_id: str = DEFAULT_TENANT_ID
     top_k: int = 5
     filename: str | None = None
     document_type: DocumentType | None = None
