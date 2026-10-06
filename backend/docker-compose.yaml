@@ -21,45 +21,6 @@ services:
     networks:
       - cybersim-net
 
-  ollama:
-    image: ollama/ollama:latest
-    container_name: cybersim-ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    # Если будет NVIDIA GPU — раскомментировать:
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    networks:
-      - cybersim-net
-
-  # One-shot: скачивает embedding-модель bge-m3, затем завершается.
-  ollama-init:
-    image: ollama/ollama:latest
-    container_name: cybersim-ollama-init
-    restart: "no"
-    depends_on:
-      ollama:
-        condition: service_started
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        until ollama list >/dev/null 2>&1; do sleep 2; done
-        ollama pull bge-m3
-    volumes:
-      - ollama_data:/root/.ollama
-    networks:
-      - cybersim-net
-
   llm:
     image: ollama/ollama:latest
     container_name: cybersim-llm
@@ -108,7 +69,6 @@ services:
       - ./.env
     environment:
       DATABASE_URL: postgresql+asyncpg://cybersim:${POSTGRES_PASSWORD:-changeme}@postgres:5432/cybersim
-      OLLAMA_BASE_URL: http://ollama:11434
       LLM_PROVIDER: ollama
       LLM_MODEL: qwen3:8b-q4_K_M
       LLM_BASE_URL: http://llm:11434
@@ -119,7 +79,6 @@ services:
       QUARANTINE_DIR: /app/data/quarantine
       MIN_DOCUMENT_CHARS: 100
       MIN_DOCUMENT_CHUNKS: 1
-      RELEVANCE_THRESHOLD: 0.5
     ports:
       - "8000:8000"
     volumes:
@@ -129,12 +88,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ollama:
-        condition: service_started
       llm:
         condition: service_started
-      ollama-init:
-        condition: service_completed_successfully
       llm-init:
         condition: service_completed_successfully
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -143,7 +98,6 @@ services:
 
 volumes:
   postgres_data:
-  ollama_data:
   llm_ollama_data:
   uploads_data:
   quarantine_data:

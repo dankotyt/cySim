@@ -29,7 +29,6 @@ from ..repositories.document_repository import DocumentRepository
 from ..repositories.missing_reference_repository import MissingReferenceRepository
 from ..repositories.security_rule_repository import SecurityRuleRepository
 from ..utils.chunking import chunk_document
-from ..utils.embeddings import EmbeddingProvider, get_embedding_provider
 from ..utils.parsers import ParsedDocument, parse_file
 from .document_validator import DocumentValidationError, DocumentValidator
 from .llm_provider import get_llm_provider
@@ -65,7 +64,6 @@ class DocumentService:
     def __init__(
         self,
         settings: Settings | None = None,
-        embedding_provider: EmbeddingProvider | None = None,
         validator: DocumentValidator | None = None,
         security_rule_repository: SecurityRuleRepository | None = None,
         rule_structurer: RuleStructurer | None = None,
@@ -85,8 +83,7 @@ class DocumentService:
         self.document_chunk_repository = (
             document_chunk_repository or DocumentChunkRepository()
         )
-        self.embedding_provider = embedding_provider or get_embedding_provider(self.settings)
-        self.validator = validator or DocumentValidator(self.settings, self.embedding_provider)
+        self.validator = validator or DocumentValidator(self.settings)
         self.rule_structurer = rule_structurer or RuleStructurer(
             llm_provider=get_llm_provider(self.settings),
             batch_size=self.settings.rule_structuring_batch_size,

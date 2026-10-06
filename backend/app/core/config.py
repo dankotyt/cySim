@@ -33,13 +33,6 @@ class Settings(BaseSettings):
     storage_dir: Path = Path("data/uploads")
     quarantine_dir: Path = Path("data/quarantine")
 
-    # Embeddings
-    embedding_provider: str = "ollama"  # "ollama" | "sentence-transformers"
-    embedding_model: str = "bge-m3"
-    ollama_base_url: str = "http://localhost:11434"
-    sentence_transformer_model: str = "BAAI/bge-m3"
-    embedding_batch_size: int = 32
-
     # LLM (scenario generation)
     llm_provider: Literal["ollama", "openai"] = "ollama"
     llm_model: str = "qwen3:8b-q4_K_M"
@@ -66,7 +59,6 @@ class Settings(BaseSettings):
     # Validation
     min_document_chars: int = 100
     min_document_chunks: int = 1
-    relevance_threshold: float = 0.5
 
     # Search
     min_search_score: float = 0.5
