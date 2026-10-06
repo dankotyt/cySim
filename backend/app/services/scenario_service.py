@@ -1,5 +1,4 @@
-"""Scenario generation business logic: semantic rule search → prompt → LLM → persist."""
-import math
+"""Scenario generation business logic: topic filtering → prompt → LLM → persist."""
 import uuid
 
 from pydantic import ValidationError
@@ -7,8 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import Settings, get_settings
 from ..core.logging import get_logger
-from ..core.topics import ATTACK_TYPE_TOPICS
-from ..models.document import SecurityRule
+from ..core.topics import ALLOWED_TOPICS, ATTACK_TYPE_TOPICS
 from ..models.scenario import (
     ATTACK_TYPES,
     AttackType,
@@ -21,10 +19,8 @@ from ..models.scenario import (
 from ..repositories.department_repository import DepartmentRepository
 from ..repositories.scenario_repository import ScenarioRepository
 from ..repositories.security_rule_repository import SecurityRuleRepository
-from ..utils.embeddings import EmbeddingProvider, get_embedding_provider
 from ..utils.llm_json import parse_llm_json_object
 from .llm_provider import LLMProvider, get_llm_provider
-from .rule_structurer import ALLOWED_TOPICS
 from .scenario_context import build_scenario_context
 from .scenario_prompts import SCENARIO_SYSTEM_PROMPT, build_scenario_prompt
 from .session_manager import SessionManager
@@ -33,19 +29,6 @@ logger = get_logger(__name__)
 
 # The reserved department name that maps to the full topic vocabulary.
 DEFAULT_DEPARTMENT = "default"
-
-# Search phrases used to rank security rules by embedding similarity. They are
-# plain-language strings (not classification keys), tuned per attack vector.
-_ATTACK_SEARCH_QUERIES: dict[AttackType, str] = {
-    "phishing": "фишинг подозрительные письма вложения ссылки мошенничество",
-    "vishing": "вишинг телефонные звонки голосовые сообщения sms коды подтверждения",
-    "baiting": "бейтинг приманка заражённые носители бесплатные подарки скачивание",
-    "pretexting": "претекстинг выдача себя за другое лицо сбор информации обман",
-    "tailgating": "тейлгейтинг проход вслед за сотрудником физический доступ пропуск",
-    "quid_pro_quo": "услуга за услугу техническая поддержка обмен информацией",
-    "social_media_osint": "открытые источники социальные сети сбор информации разведка",
-    "usb_drop": "подброшенная флешка usb носитель заражённый накопитель",
-}
 
 
 class ScenarioServiceError(Exception):
@@ -71,11 +54,11 @@ class ScenarioGenerationError(ScenarioServiceError):
 class ScenarioService:
     """Facade exposing scenario generation (single and batch) and CRUD.
 
-    Generation semantically ranks the tenant's structured security rules against
-    the attack type, keeps only the rules allowed for the requested department,
-    then asks the LLM for a JSON scenario (with one clarification retry) and
-    persists the result. LLM calls go through a shared :class:`SessionManager`
-    so long batch runs stay within the context window.
+    Generation selects the tenant's structured security rules by SQL topic
+    filtering: rules whose topic belongs to the attack type's topics and to the
+    department's ``allowed_topics`` are handed to the LLM for a JSON scenario
+    (with one clarification retry). LLM calls go through a shared
+    :class:`SessionManager` so long batch runs stay within the context window.
     """
 
     def __init__(
@@ -83,16 +66,12 @@ class ScenarioService:
         settings: Settings | None = None,
         rule_repository: SecurityRuleRepository | None = None,
         llm_provider: LLMProvider | None = None,
-        embedding_provider: EmbeddingProvider | None = None,
         department_repository: DepartmentRepository | None = None,
         session_manager: SessionManager | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.rule_repository = rule_repository or SecurityRuleRepository()
         self.llm_provider = llm_provider or get_llm_provider(self.settings)
-        self.embedding_provider = embedding_provider or get_embedding_provider(
-            self.settings
-        )
         self.department_repository = department_repository or DepartmentRepository()
         self.session_manager = session_manager or SessionManager(
             self.llm_provider, self.settings.llm_num_ctx
@@ -107,37 +86,36 @@ class ScenarioService:
     async def generate_scenario(
         self, session: AsyncSession, request: GenerateScenarioRequest
     ) -> GenerateScenarioResponse:
-        """Semantically rank rules, filter by department, generate and persist."""
+        """Select rules by topic + department, generate and persist a scenario."""
         allowed_topics = await self._resolve_allowed_topics(
             session, request.tenant_id, request.department
         )
+        attack_topics = list(
+            ATTACK_TYPE_TOPICS.get(request.attack_type, (request.attack_type,))
+        )
 
-        rules = await self.rule_repository.list_by_tenant(
-            session, request.tenant_id
+        rules = await self.rule_repository.list_by_topics(
+            session, request.tenant_id, attack_topics
         )
         logger.info(
-            "Semantic search found %d rules for tenant=%s attack_type=%s",
+            "Found %d rules for attack_type=%s tenant=%s",
             len(rules),
-            request.tenant_id,
             request.attack_type,
+            request.tenant_id,
         )
 
-        ranked = self._rank_by_similarity(
-            rules, self._search_query(request.attack_type)
-        )
-        filtered = [rule for rule in ranked if rule.topic in allowed_topics]
+        filtered = [rule for rule in rules if rule.topic in allowed_topics]
         logger.info(
             "Department filter removed %d of %d rules for department=%s",
-            len(ranked) - len(filtered),
-            len(ranked),
+            len(rules) - len(filtered),
+            len(rules),
             request.department,
         )
 
         if not filtered:
             raise NoRulesFoundError(
-                f"No relevant rules found for tenant {request.tenant_id!r}, "
-                f"department {request.department!r} and attack type "
-                f"{request.attack_type!r}"
+                f"No rules found for topic(s) {attack_topics!r} in department "
+                f"{request.department!r} (tenant {request.tenant_id!r})"
             )
 
         topics_used = sorted({rule.topic for rule in filtered})
@@ -151,7 +129,7 @@ class ScenarioService:
         prompt = build_scenario_prompt(
             context, request.attack_type, request.department
         )
-        scenario = self._generate_with_retry(prompt, request, topics_used)
+        scenario = await self._generate_with_retry(prompt, request, topics_used)
         await self.repository.create(session, scenario)
         self._remember(scenario)
 
@@ -247,44 +225,6 @@ class ScenarioService:
             )
         return stored.allowed_topics
 
-    @staticmethod
-    def _search_query(attack_type: AttackType) -> str:
-        """Return the semantic search phrase for an attack type."""
-        return _ATTACK_SEARCH_QUERIES.get(attack_type, attack_type)
-
-    def _rank_by_similarity(
-        self, rules: list[SecurityRule], query: str
-    ) -> list[SecurityRule]:
-        """Rank rules by embedding similarity to ``query`` (descending)."""
-        if len(rules) <= 1:
-            return rules
-        try:
-            query_embedding = self.embedding_provider.embed_query(query)
-            embeddings = self.embedding_provider.embed_texts(
-                [rule.description for rule in rules]
-            )
-        except Exception as exc:  # noqa: BLE001 - ranking is best-effort
-            logger.warning(
-                "Semantic ranking unavailable (%s); keeping original order", exc
-            )
-            return rules
-        ranked = sorted(
-            zip(rules, embeddings),
-            key=lambda pair: self._cosine(query_embedding, pair[1]),
-            reverse=True,
-        )
-        return [rule for rule, _ in ranked]
-
-    @staticmethod
-    def _cosine(a: list[float], b: list[float]) -> float:
-        """Return the cosine similarity between two vectors."""
-        dot = sum(x * y for x, y in zip(a, b))
-        norm_a = math.sqrt(sum(x * x for x in a))
-        norm_b = math.sqrt(sum(y * y for y in b))
-        if norm_a == 0.0 or norm_b == 0.0:
-            return 0.0
-        return dot / (norm_a * norm_b)
-
     def _remember(self, scenario: Scenario) -> None:
         """Accumulate used topics and titles for the next session anchor."""
         for topic in scenario.topics_used:
@@ -293,14 +233,14 @@ class ScenarioService:
         if scenario.title and scenario.title not in self._generated_titles:
             self._generated_titles.append(scenario.title)
 
-    def _generate_with_retry(
+    async def _generate_with_retry(
         self,
         prompt: str,
         request: GenerateScenarioRequest,
         topics_used: list[str],
     ) -> Scenario:
         anchor = [*self._used_topics, *self._generated_titles]
-        raw = self.session_manager.generate(
+        raw = await self.session_manager.generate(
             prompt, system=SCENARIO_SYSTEM_PROMPT, anchor=anchor
         )
         try:
@@ -313,7 +253,7 @@ class ScenarioService:
                 f"Верни ИСПРАВЛЕННЫЙ результат: строго валидный JSON-объект без markdown "
                 f"и пояснений."
             )
-            raw = self.session_manager.generate(
+            raw = await self.session_manager.generate(
                 correction, system=SCENARIO_SYSTEM_PROMPT, anchor=anchor
             )
             try:
