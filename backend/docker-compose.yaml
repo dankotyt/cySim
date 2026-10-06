@@ -21,26 +21,6 @@ services:
     networks:
       - cybersim-net
 
-  chroma:
-    image: chromadb/chroma:latest
-    container_name: cybersim-chroma
-    restart: unless-stopped
-    environment:
-      ANONYMIZED_TELEMETRY: "False"
-      IS_PERSISTENT: "TRUE"
-    ports:
-      - "8001:8000"
-    volumes:
-      - chroma_data:/data
-    healthcheck:
-      test: [ "CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8000" ]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
-    networks:
-      - cybersim-net
-
   ollama:
     image: ollama/ollama:latest
     container_name: cybersim-ollama
@@ -128,9 +108,6 @@ services:
       - ./.env
     environment:
       DATABASE_URL: postgresql+asyncpg://cybersim:${POSTGRES_PASSWORD:-changeme}@postgres:5432/cybersim
-      USE_CHROMA_SERVER: "true"
-      CHROMA_HOST: chroma
-      CHROMA_PORT: 8000
       OLLAMA_BASE_URL: http://ollama:11434
       LLM_PROVIDER: ollama
       LLM_MODEL: qwen3:8b-q4_K_M
@@ -152,8 +129,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      chroma:
-        condition: service_healthy
       ollama:
         condition: service_started
       llm:
@@ -168,7 +143,6 @@ services:
 
 volumes:
   postgres_data:
-  chroma_data:
   ollama_data:
   llm_ollama_data:
   uploads_data:

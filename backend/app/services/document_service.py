@@ -1,14 +1,10 @@
-"""RAG business logic: ingestion, chunking, embedding, storage and retrieval."""
-import re
+"""Document ingestion, parsing, chunking, storage and retrieval."""
 import shutil
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
-import chromadb
-from chromadb.api import ClientAPI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +24,7 @@ from ..models.document import (
     UploadResponse,
 )
 from ..models.db_models import DocumentORM
+from ..repositories.document_chunk_repository import DocumentChunkRepository
 from ..repositories.document_repository import DocumentRepository
 from ..repositories.missing_reference_repository import MissingReferenceRepository
 from ..repositories.security_rule_repository import SecurityRuleRepository
@@ -50,15 +47,16 @@ class DocumentNotFoundError(DocumentServiceError):
 
 
 class ProcessingError(DocumentServiceError):
-    """Raised when a document fails to parse, chunk, validate or embed."""
+    """Raised when a document fails to parse, chunk, validate or structure."""
 
 
 class DocumentService:
     """Facade exposing the full document analysis pipeline.
 
-    The service is the integration point for other modules (e.g. scenario
-    generation): it owns ingestion, chunking, embedding, vector storage,
-    retrieval and rule extraction.
+    The service owns ingestion, parsing, chunking, chunk persistence, rule
+    structuring and chunk retrieval. Chunks are stored in Postgres
+    (``document_chunks``) and searched via ``pg_trgm`` similarity; there is no
+    external vector store.
 
     Database access is asynchronous; each method receives an
     :class:`AsyncSession` (injected by FastAPI through ``Depends(get_db)``).
@@ -68,11 +66,11 @@ class DocumentService:
         self,
         settings: Settings | None = None,
         embedding_provider: EmbeddingProvider | None = None,
-        chroma_client: ClientAPI | None = None,
         validator: DocumentValidator | None = None,
         security_rule_repository: SecurityRuleRepository | None = None,
         rule_structurer: RuleStructurer | None = None,
         missing_reference_repository: MissingReferenceRepository | None = None,
+        document_chunk_repository: DocumentChunkRepository | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.settings.ensure_directories()
@@ -84,6 +82,9 @@ class DocumentService:
         self.missing_reference_repository = (
             missing_reference_repository or MissingReferenceRepository()
         )
+        self.document_chunk_repository = (
+            document_chunk_repository or DocumentChunkRepository()
+        )
         self.embedding_provider = embedding_provider or get_embedding_provider(self.settings)
         self.validator = validator or DocumentValidator(self.settings, self.embedding_provider)
         self.rule_structurer = rule_structurer or RuleStructurer(
@@ -93,7 +94,6 @@ class DocumentService:
             num_ctx=self.settings.llm_num_ctx,
             dedup_threshold=self.settings.rule_dedup_threshold,
         )
-        self._client = chroma_client or self._build_chroma_client()
 
         self._metrics = {
             "processed": 0,
@@ -104,31 +104,6 @@ class DocumentService:
 
     # -- helpers -----------------------------------------------------------
 
-    def _build_chroma_client(self) -> ClientAPI:
-        """Return a Chroma client, preferring a remote server when configured."""
-        if self.settings.use_chroma_server:
-            logger.info(
-                "Using Chroma server at %s:%d",
-                self.settings.chroma_host,
-                self.settings.chroma_port,
-            )
-            return chromadb.HttpClient(
-                host=self.settings.chroma_host,
-                port=self.settings.chroma_port,
-            )
-        return chromadb.PersistentClient(path=str(self.settings.chroma_persist_dir))
-
-    def _collection(self, tenant_id: str) -> Any:
-        name = self._collection_name(tenant_id)
-        return self._client.get_or_create_collection(
-            name=name, metadata={"hnsw:space": "cosine"}
-        )
-
-    def _collection_name(self, tenant_id: str) -> str:
-        sanitized = re.sub(r"[^a-zA-Z0-9_-]+", "_", tenant_id).strip("_") or "default"
-        name = f"{self.settings.collection_prefix}_{sanitized}"
-        return name[:63].strip("_-") or "collection"
-
     @staticmethod
     def _document_type(extension: str) -> DocumentType:
         mapping = {
@@ -138,16 +113,6 @@ class DocumentService:
         }
         return mapping[extension]
 
-    @staticmethod
-    def _chunk_metadata(chunk: Any) -> dict[str, Any]:
-        return {
-            "document_id": chunk.document_id,
-            "source": chunk.source,
-            "page": chunk.page,
-            "chunk_index": chunk.chunk_index,
-            "document_type": chunk.document_type.value,
-        }
-
     async def _require_document(
         self, session: AsyncSession, document_id: str, tenant_id: str
     ) -> Document:
@@ -155,21 +120,6 @@ class DocumentService:
         if document is None or document.tenant_id != tenant_id:
             raise DocumentNotFoundError(f"Document not found: {document_id}")
         return document
-
-    @staticmethod
-    def _build_filter(
-        filename: str | None,
-        document_type: DocumentType | None,
-        document_id: str | None = None,
-    ) -> dict[str, str] | None:
-        conditions: dict[str, str] = {}
-        if filename:
-            conditions["source"] = filename
-        if document_type:
-            conditions["document_type"] = document_type.value
-        if document_id:
-            conditions["document_id"] = document_id
-        return conditions or None
 
     def _move_to_quarantine(self, document: Document) -> None:
         """Move the original file into the quarantine directory."""
@@ -245,7 +195,7 @@ class DocumentService:
     async def process_document(
         self, session: AsyncSession, document_id: str, tenant_id: str
     ) -> ProcessResponse:
-        """Parse, validate, chunk, embed and store a previously uploaded document."""
+        """Parse, validate, chunk, store and structure a previously uploaded document."""
         document = await self._require_document(session, document_id, tenant_id)
         document.status = DocumentStatus.PROCESSING
         document.error = None
@@ -275,22 +225,21 @@ class DocumentService:
                 logger.warning("Document validation failed: id=%s error=%s", document_id, exc)
                 raise ProcessingError(str(exc)) from exc
 
-            embeddings = self.embedding_provider.embed_texts([chunk.text for chunk in chunks])
-            collection = self._collection(tenant_id)
-            collection.add(
-                ids=[chunk.id for chunk in chunks],
-                embeddings=embeddings,
-                documents=[chunk.text for chunk in chunks],
-                metadatas=[self._chunk_metadata(chunk) for chunk in chunks],
-            )
-
             # Idempotency on reprocessing: drop this document's previously
-            # structured rules and missing references before re-deriving them.
+            # derived chunks, structured rules and missing references before
+            # re-deriving them.
+            await self.document_chunk_repository.delete_by_document(
+                session, document.id
+            )
             await self.security_rule_repository.delete_by_document(
                 session, document.id
             )
             await self.missing_reference_repository.delete_by_document(
                 session, document.id
+            )
+
+            await self.document_chunk_repository.create_many(
+                session, tenant_id, chunks
             )
 
             rules = self.rule_structurer.structure(
@@ -353,51 +302,37 @@ class DocumentService:
         document_id: str | None = None,
         min_score: float | None = None,
     ) -> SearchResponse:
-        """Run semantic search over a tenant's vector store.
+        """Run full-text similarity search over a tenant's stored chunks.
 
-        Chunks whose cosine similarity score falls below ``min_score`` (or the
-        configured ``settings.min_search_score`` when ``min_score`` is ``None``)
-        are dropped. When nothing passes the threshold, an empty result set with
-        an explanatory ``message`` is returned.
+        Chunks whose ``pg_trgm`` similarity score falls below ``min_score`` (or
+        the configured ``settings.min_search_score`` when ``min_score`` is
+        ``None``) are dropped. When nothing passes the threshold, an empty result
+        set with an explanatory ``message`` is returned.
 
-        When ``top_k`` is ``None``, every chunk in the collection is considered
-        (used for precomputed rule extraction).
+        When ``top_k`` is ``None``, every matching chunk is considered.
         """
-        collection = self._collection(tenant_id)
-        query_embedding = self.embedding_provider.embed_query(query)
-        where = self._build_filter(filename, document_type, document_id)
-
-        n_results = top_k if top_k is not None else max(collection.count(), 1)
-        response = collection.query(
-            query_embeddings=[query_embedding],
-            n_results=n_results,
-            where=where,
-            include=["documents", "metadatas", "distances"],
+        threshold = min_score if min_score is not None else self.settings.min_search_score
+        rows = await self.document_chunk_repository.search(
+            session,
+            tenant_id,
+            query,
+            top_k=top_k,
+            filename=filename,
+            document_type=document_type.value if document_type is not None else None,
+            document_id=document_id,
+            min_score=threshold,
         )
 
-        ids = response.get("ids", [[]])[0]
-        documents = response.get("documents", [[]])[0]
-        metadatas = response.get("metadatas", [[]])[0]
-        distances = response.get("distances", [[]])[0]
-
-        threshold = min_score if min_score is not None else self.settings.min_search_score
-
-        results: list[SearchResult] = []
-        for index, chunk_id in enumerate(ids):
-            metadata = metadatas[index] or {}
-            distance = float(distances[index]) if index < len(distances) else 0.0
-            score = round(1.0 - distance, 6)
-            if score < threshold:
-                continue
-            results.append(
-                SearchResult(
-                    document_id=metadata.get("document_id", chunk_id),
-                    text=documents[index] if index < len(documents) else "",
-                    source=metadata.get("source", ""),
-                    page=metadata.get("page", 1),
-                    score=score,
-                )
+        results: list[SearchResult] = [
+            SearchResult(
+                document_id=chunk.document_id,
+                text=chunk.text,
+                source=chunk.source,
+                page=chunk.page,
+                score=round(score, 6),
             )
+            for chunk, score in rows
+        ]
 
         if not results:
             return SearchResponse(
@@ -410,9 +345,8 @@ class DocumentService:
     async def delete_document(
         self, session: AsyncSession, document_id: str, tenant_id: str
     ) -> DeleteResponse:
-        """Delete a document and all of its embeddings."""
+        """Delete a document and all of its derived records."""
         document = await self._require_document(session, document_id, tenant_id)
-        self._collection(tenant_id).delete(where={"document_id": document_id})
 
         file_path = Path(document.file_path)
         if file_path.exists():
@@ -425,18 +359,6 @@ class DocumentService:
         await self.repository.delete(session, document_id)
         logger.info("Document deleted: id=%s tenant=%s", document_id, tenant_id)
         return DeleteResponse(document_id=document_id, deleted=True)
-
-    async def extract_rules(
-        self,
-        session: AsyncSession,
-        tenant_id: str,
-        topic: str | None = None,
-        section: str | None = None,
-    ) -> list[SecurityRule]:
-        """Read structured rules from ``security_rules`` by optional filters."""
-        return await self.security_rule_repository.list_by_filters(
-            session, tenant_id, topic=topic, section=section
-        )
 
     async def list_missing_references(
         self, session: AsyncSession, tenant_id: str
@@ -452,6 +374,18 @@ class DocumentService:
         """Delete every missing reference for a tenant and return the count."""
         return await self.missing_reference_repository.delete_by_tenant(
             session, tenant_id
+        )
+
+    async def extract_rules(
+        self,
+        session: AsyncSession,
+        tenant_id: str,
+        topic: str | None = None,
+        section: str | None = None,
+    ) -> list[SecurityRule]:
+        """Read structured rules from ``security_rules`` by optional filters."""
+        return await self.security_rule_repository.list_by_filters(
+            session, tenant_id, topic=topic, section=section
         )
 
     async def _document_exists(

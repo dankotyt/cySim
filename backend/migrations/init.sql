@@ -2,6 +2,8 @@
 -- Executed automatically by the postgres container on first boot via
 -- docker-entrypoint-initdb.d. Keep in sync with app/models/db_models.py.
 
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 CREATE TABLE IF NOT EXISTS documents (
     id            VARCHAR(36)  PRIMARY KEY,
     tenant_id     VARCHAR(255) NOT NULL,
@@ -27,6 +29,18 @@ CREATE TABLE IF NOT EXISTS security_rules (
     topic        VARCHAR(64)  NOT NULL,
     linked_docs  JSON         NOT NULL,
     created_at   TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS document_chunks (
+    id            VARCHAR(36)  PRIMARY KEY,
+    tenant_id     VARCHAR(255) NOT NULL,
+    document_id   VARCHAR(36)  NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    chunk_index   INTEGER      NOT NULL,
+    page          INTEGER      NOT NULL DEFAULT 1,
+    text          TEXT         NOT NULL,
+    source        VARCHAR(255) NOT NULL,
+    document_type VARCHAR(16)  NOT NULL,
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS missing_references (
@@ -73,6 +87,11 @@ CREATE INDEX IF NOT EXISTS idx_security_rules_tenant_id ON security_rules (tenan
 CREATE INDEX IF NOT EXISTS idx_security_rules_document_id ON security_rules (document_id);
 
 CREATE INDEX IF NOT EXISTS idx_missing_references_document_id ON missing_references (document_id);
+
+CREATE INDEX IF NOT EXISTS idx_document_chunks_tenant_id ON document_chunks (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_document_chunks_document_id ON document_chunks (document_id);
+CREATE INDEX IF NOT EXISTS idx_document_chunks_text_trgm ON document_chunks USING gin (text gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_document_chunks_text_tsv ON document_chunks USING gin (to_tsvector('russian', text));
 
 CREATE INDEX IF NOT EXISTS idx_departments_tenant_id ON departments (tenant_id);
 

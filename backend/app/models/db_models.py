@@ -73,6 +73,30 @@ class SecurityRuleORM(Base):
     )
 
 
+class DocumentChunkORM(Base):
+    """A single text chunk of a parsed document, stored for full-text search."""
+
+    __tablename__ = "document_chunks"
+    __table_args__ = (
+        Index("idx_document_chunks_tenant_id", "tenant_id"),
+        Index("idx_document_chunks_document_id", "document_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    document_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    page: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(255), nullable=False)
+    document_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+
+
 class MissingReferenceORM(Base):
     """Internal document referenced by a rule but not yet uploaded."""
 

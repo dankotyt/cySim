@@ -31,13 +31,7 @@ class Settings(BaseSettings):
 
     # Storage
     storage_dir: Path = Path("data/uploads")
-    chroma_persist_dir: Path = Path("data/chroma")
     quarantine_dir: Path = Path("data/quarantine")
-
-    # Chroma server (used instead of PersistentClient when enabled)
-    chroma_host: str = "localhost"
-    chroma_port: int = 8000
-    use_chroma_server: bool = False
 
     # Embeddings
     embedding_provider: str = "ollama"  # "ollama" | "sentence-transformers"
@@ -76,7 +70,6 @@ class Settings(BaseSettings):
     allowed_extensions: Annotated[set[str], NoDecode] = {".pdf", ".docx", ".txt"}
     max_upload_size_mb: int = 50
     default_tenant_id: str = "default"
-    collection_prefix: str = "cybersim"
 
     # Validation
     min_document_chars: int = 100
@@ -96,9 +89,8 @@ class Settings(BaseSettings):
         return value
 
     def ensure_directories(self) -> None:
-        """Create the storage, Chroma and quarantine directories on demand."""
+        """Create the storage and quarantine directories on demand."""
         self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.chroma_persist_dir.mkdir(parents=True, exist_ok=True)
         self.quarantine_dir.mkdir(parents=True, exist_ok=True)
 
 
