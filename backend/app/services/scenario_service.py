@@ -78,8 +78,11 @@ class ScenarioService:
         )
         self.repository = ScenarioRepository()
 
-        # Cross-call session memory: passed as the SessionManager anchor so a
-        # reset re-injects already-used topics and titles for consistency.
+        # Batch-level session memory. These accumulate across every scenario in
+        # a batch (and across calls) and are passed to the SessionManager as the
+        # anchor, so a context reset re-injects all already-used topics and
+        # titles for consistency. A per-scenario anchor (just the attack type)
+        # would carry no useful cross-scenario signal.
         self._used_topics: list[str] = []
         self._generated_titles: list[str] = []
 
@@ -242,6 +245,8 @@ class ScenarioService:
         request: GenerateScenarioRequest,
         topics_used: list[str],
     ) -> Scenario:
+        # Batch-level anchor: already-used topics and titles, not the current
+        # scenario's attack type alone.
         anchor = [*self._used_topics, *self._generated_titles]
         raw = await self.session_manager.generate(
             prompt, system=SCENARIO_SYSTEM_PROMPT, anchor=anchor
