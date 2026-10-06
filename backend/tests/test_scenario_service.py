@@ -20,22 +20,18 @@ def _rule(**overrides):
     defaults = dict(
         title="Не передавать пароли",
         description="Запрещено передавать учётные данные третьим лицам.",
-        attack_type="phishing",
-        source="policy.txt",
-        page=1,
-        score=0.9,
+        section="Пароли",
+        topic="phishing",
+        linked_docs=[],
+        document_id="doc-1",
     )
     defaults.update(overrides)
     return SecurityRule(**defaults)
 
 
-async def _seed_rules(
-    session, tenant_id="acme", categories=("phishing",), document_id="doc-1"
-):
-    rules = [_rule(attack_type=category) for category in categories]
-    await SecurityRuleRepository().create_many(
-        session, tenant_id, document_id, rules
-    )
+async def _seed_rules(session, tenant_id="acme", topics=("phishing",), document_id="doc-1"):
+    rules = [_rule(topic=topic, document_id=document_id) for topic in topics]
+    await SecurityRuleRepository().create_many(session, tenant_id, rules)
     return rules
 
 
@@ -74,10 +70,10 @@ async def test_generate_scenario_no_rules_raises(db_session):
 
 async def test_generate_scenario_limits_rules_for_llm(db_session):
     rules = [
-        _rule(attack_type="phishing", description=f"Запрет {index}.")
+        _rule(topic="phishing", description=f"Запрет {index}.")
         for index in range(1, 8)
     ]
-    await SecurityRuleRepository().create_many(db_session, "acme", "doc-1", rules)
+    await SecurityRuleRepository().create_many(db_session, "acme", rules)
 
     service = _service()
     request = GenerateScenarioRequest(
@@ -102,7 +98,7 @@ async def test_generate_scenario_retries_on_invalid_json(db_session):
 
 
 async def test_generate_all_scenarios(db_session):
-    await _seed_rules(db_session, categories=("phishing",))
+    await _seed_rules(db_session, topics=("phishing",))
     service = _service()
     request = BatchGenerateRequest(tenant_id="acme", top_k_rules=5)
 
@@ -116,7 +112,7 @@ async def test_generate_all_scenarios(db_session):
 
 
 async def test_generate_all_scenarios_records_errors(db_session):
-    await _seed_rules(db_session, categories=("phishing",))
+    await _seed_rules(db_session, topics=("phishing",))
     service = _service(llm=FakeLLMProvider(responses=["bad", "bad"]))
     request = BatchGenerateRequest(tenant_id="acme")
 

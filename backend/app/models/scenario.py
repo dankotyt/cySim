@@ -4,8 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-# Top-level attack vectors the generator supports. Keep in sync with the
-# ATTACK_QUERIES mapping in attack_queries.py.
+# Top-level attack vectors the generator supports. They are a subset of the
+# controlled topic vocabulary in rule_structurer.ALLOWED_TOPICS.
 AttackType = Literal[
     "phishing",
     "vishing",
@@ -16,6 +16,18 @@ AttackType = Literal[
     "social_media_osint",
     "usb_drop",
 ]
+
+# The concrete attack types iterated by batch scenario generation.
+ATTACK_TYPES: tuple[AttackType, ...] = (
+    "phishing",
+    "vishing",
+    "baiting",
+    "pretexting",
+    "tailgating",
+    "quid_pro_quo",
+    "social_media_osint",
+    "usb_drop",
+)
 
 # The interaction channel of a single scenario step.
 ScenarioStepType = Literal[

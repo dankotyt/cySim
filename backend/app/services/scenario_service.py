@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import Settings, get_settings
 from ..core.logging import get_logger
 from ..models.scenario import (
+    ATTACK_TYPES,
     BatchGenerateRequest,
     BatchGenerateResponse,
     GenerateScenarioRequest,
@@ -16,7 +17,6 @@ from ..models.scenario import (
 )
 from ..repositories.scenario_repository import ScenarioRepository
 from ..repositories.security_rule_repository import SecurityRuleRepository
-from .attack_queries import ATTACK_QUERIES
 from .llm_provider import LLMProvider, get_llm_provider
 from .scenario_context import build_scenario_context
 from .scenario_prompts import SCENARIO_SYSTEM_PROMPT, build_scenario_prompt
@@ -64,7 +64,7 @@ class ScenarioService:
         self, session: AsyncSession, request: GenerateScenarioRequest
     ) -> GenerateScenarioResponse:
         """Retrieve precomputed rules, generate and persist a scenario."""
-        rules = await self.rule_repository.list_by_attack_type(
+        rules = await self.rule_repository.list_by_topic(
             session, request.tenant_id, request.attack_type
         )
         if not rules:
@@ -101,7 +101,7 @@ class ScenarioService:
         skipped: list[str] = []
         errors: list[dict[str, str]] = []
 
-        for attack_type in ATTACK_QUERIES:
+        for attack_type in ATTACK_TYPES:
             try:
                 response = await self.generate_scenario(
                     session,

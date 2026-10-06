@@ -22,6 +22,7 @@ from app.models.document import DocumentStatus  # noqa: E402
 from app.services.document_service import DocumentService  # noqa: E402
 from tests.fakes import (  # noqa: E402
     FakeEmbeddingProvider,
+    FakeRuleStructurer,
     FakeValidator,
     FailingValidator,
 )
@@ -52,6 +53,7 @@ def service(settings) -> DocumentService:
         embedding_provider=FakeEmbeddingProvider(),
         chroma_client=chromadb.PersistentClient(path=str(settings.chroma_persist_dir)),
         validator=FakeValidator(),
+        rule_structurer=FakeRuleStructurer(),
     )
 
 
@@ -195,10 +197,8 @@ async def test_extract_rules_returns_structured_rules(service, db_session):
     document_id = (await service.repository.list(db_session, "acme"))[0].id
     await service.process_document(db_session, document_id, "acme")
 
-    rules = await service.extract_rules(
-        "acme", query="password and attachment rules", attack_type="phishing", top_k=3
-    )
+    rules = await service.extract_rules(db_session, "acme", topic="passwords")
     assert rules
-    assert all(rule.source == "rules.txt" for rule in rules)
     assert all(rule.title for rule in rules)
-    assert all(rule.page == 1 for rule in rules)
+    assert all(rule.topic == "passwords" for rule in rules)
+    assert all(rule.document_id == document_id for rule in rules)

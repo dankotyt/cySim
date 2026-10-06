@@ -14,7 +14,6 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -50,35 +49,44 @@ class DocumentORM(Base):
 
 
 class SecurityRuleORM(Base):
-    """Structured security rule extracted from processed documents."""
+    """Structured security rule produced by LLM structuring."""
 
     __tablename__ = "security_rules"
     __table_args__ = (
         Index("idx_security_rules_tenant_id", "tenant_id"),
         Index("idx_security_rules_document_id", "document_id"),
-        Index("idx_security_rules_attack_type", "attack_type"),
-        UniqueConstraint(
-            "tenant_id",
-            "content_hash",
-            "attack_type",
-            name="uq_security_rules_tenant_content_attack_type",
-        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     tenant_id: Mapped[str] = mapped_column(String(255))
     document_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("documents.id", ondelete="CASCADE"),
-        nullable=False,
+        String(36), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
     title: Mapped[str] = mapped_column(String(255))
     description: Mapped[str] = mapped_column(Text)
-    attack_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    source: Mapped[str] = mapped_column(String(255))
-    page: Mapped[int] = mapped_column(Integer, default=1)
-    score: Mapped[float] = mapped_column(default=0.0)
-    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    section: Mapped[str] = mapped_column(Text, nullable=False)
+    topic: Mapped[str] = mapped_column(String(64), nullable=False)
+    linked_docs: Mapped[list] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+
+
+class MissingReferenceORM(Base):
+    """Internal document referenced by a rule but not yet uploaded."""
+
+    __tablename__ = "missing_references"
+    __table_args__ = (
+        Index("idx_missing_references_document_id", "document_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(255))
+    document_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    reference: Mapped[str] = mapped_column(Text, nullable=False)
+    section: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
     )

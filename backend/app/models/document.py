@@ -110,15 +110,15 @@ class SearchResponse(BaseModel):
 
 
 class SecurityRule(BaseModel):
-    """A structured security rule extracted from retrieved chunks."""
+    """A structured security rule produced by LLM structuring of document chunks."""
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     title: str
     description: str
-    attack_type: str
-    source: str
-    page: int
-    score: float
+    section: str
+    topic: str
+    linked_docs: list[str] = Field(default_factory=list)
+    document_id: str
     created_at: datetime = Field(default_factory=_utcnow)
 
 

@@ -12,11 +12,13 @@ _NO_RULES_MESSAGE = "Релевантные правила не найдены."
 
 def _format_rule(index: int, rule: SecurityRule) -> str:
     """Format a single rule as a numbered, structured block."""
+    linked = ", ".join(rule.linked_docs) if rule.linked_docs else "—"
     return (
-        f"Правило {index} [{rule.attack_type}]\n"
+        f"Правило {index} [{rule.topic}]\n"
         f"Название: {rule.title}\n"
+        f"Раздел: {rule.section or '—'}\n"
         f"Содержание: {rule.description}\n"
-        f"Источник: {rule.source} (стр. {rule.page}, score={rule.score:.3f})"
+        f"Связанные документы: {linked}"
     )
 
 

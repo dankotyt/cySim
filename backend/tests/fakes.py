@@ -1,6 +1,7 @@
 """Shared test doubles."""
 import hashlib
 
+from app.models.document import SecurityRule
 from app.services.document_validator import DocumentValidationError
 from app.services.llm_provider import LLMProvider
 from app.utils.embeddings import EmbeddingProvider
@@ -67,3 +68,23 @@ class FakeLLMProvider(LLMProvider):
 
     def is_available(self) -> bool:
         return True
+
+
+class FakeRuleStructurer:
+    """Deterministic rule structurer that returns one canned rule."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    def structure(self, chunks, tenant_id, document_id):
+        self.calls.append((chunks, tenant_id, document_id))
+        return [
+            SecurityRule(
+                title="Не передавать пароли",
+                description="Пароль должен содержать 12 символов.",
+                section="Пароли",
+                topic="passwords",
+                linked_docs=[],
+                document_id=document_id,
+            )
+        ]

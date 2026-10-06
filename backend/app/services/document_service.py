@@ -9,6 +9,7 @@ from typing import Any
 
 import chromadb
 from chromadb.api import ClientAPI
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import Settings, get_settings
@@ -25,15 +26,19 @@ from ..models.document import (
     SecurityRule,
     UploadResponse,
 )
+from ..models.db_models import DocumentORM
 from ..repositories.document_repository import DocumentRepository
+from ..repositories.missing_reference_repository import MissingReferenceRepository
 from ..repositories.security_rule_repository import SecurityRuleRepository
 from ..utils.chunking import chunk_document
 from ..utils.embeddings import EmbeddingProvider, get_embedding_provider
 from ..utils.parsers import ParsedDocument, parse_file
-from .attack_queries import ATTACK_QUERIES
 from .document_validator import DocumentValidationError, DocumentValidator
+from .llm_provider import get_llm_provider
+from .rule_structurer import RuleStructurer
 
 logger = get_logger(__name__)
+
 
 class DocumentServiceError(Exception):
     """Base exception for document-service failures."""
@@ -65,6 +70,8 @@ class DocumentService:
         chroma_client: ClientAPI | None = None,
         validator: DocumentValidator | None = None,
         security_rule_repository: SecurityRuleRepository | None = None,
+        rule_structurer: RuleStructurer | None = None,
+        missing_reference_repository: MissingReferenceRepository | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.settings.ensure_directories()
@@ -73,8 +80,18 @@ class DocumentService:
         self.security_rule_repository = (
             security_rule_repository or SecurityRuleRepository()
         )
+        self.missing_reference_repository = (
+            missing_reference_repository or MissingReferenceRepository()
+        )
         self.embedding_provider = embedding_provider or get_embedding_provider(self.settings)
         self.validator = validator or DocumentValidator(self.settings, self.embedding_provider)
+        self.rule_structurer = rule_structurer or RuleStructurer(
+            llm_provider=get_llm_provider(self.settings),
+            embedding_provider=self.embedding_provider,
+            batch_size=self.settings.rule_structuring_batch_size,
+            num_ctx=self.settings.llm_num_ctx,
+            dedup_threshold=self.settings.rule_dedup_threshold,
+        )
         self._client = chroma_client or self._build_chroma_client()
 
         self._metrics = {
@@ -267,38 +284,29 @@ class DocumentService:
             )
 
             # Idempotency on reprocessing: drop this document's previously
-            # extracted rules before re-deriving them from its own chunks.
+            # structured rules and missing references before re-deriving them.
             await self.security_rule_repository.delete_by_document(
                 session, document.id
             )
+            await self.missing_reference_repository.delete_by_document(
+                session, document.id
+            )
 
-            for attack_type, query in ATTACK_QUERIES.items():
-                rules = await self.extract_rules(
-                    tenant_id,
-                    query=query,
-                    attack_type=attack_type,
-                    top_k=None,
-                    document_id=document.id,
-                )
-                if not rules:
-                    logger.info(
-                        "No rules for attack_type=%s tenant=%s document_id=%s",
-                        attack_type,
-                        tenant_id,
-                        document.id,
-                    )
-                    continue
-                rules = _split_rules(rules)
-                await self.security_rule_repository.create_many(
-                    session, tenant_id, document.id, rules
-                )
-                logger.info(
-                    "Extracted %d rules for attack_type=%s tenant=%s document_id=%s",
-                    len(rules),
-                    attack_type,
-                    tenant_id,
-                    document.id,
-                )
+            rules = self.rule_structurer.structure(
+                chunks, tenant_id, document.id
+            )
+            await self.security_rule_repository.create_many(
+                session, tenant_id, rules
+            )
+            await self._record_missing_references(
+                session, tenant_id, document.id, rules
+            )
+            logger.info(
+                "Structured %d rules for tenant=%s document_id=%s",
+                len(rules),
+                tenant_id,
+                document.id,
+            )
 
             document.page_count = len(parsed.pages)
             document.chunk_count = len(chunks)
@@ -419,42 +427,47 @@ class DocumentService:
 
     async def extract_rules(
         self,
+        session: AsyncSession,
         tenant_id: str,
-        query: str,
-        attack_type: str,
-        document_id: str | None = None,
-        top_k: int | None = 10,
+        topic: str | None = None,
+        section: str | None = None,
     ) -> list[SecurityRule]:
-        """Retrieve rule-relevant chunks and return them as structured rules.
-
-        ``attack_type`` is the ``ATTACK_QUERIES`` key the chunks were found for;
-        it is stamped onto every returned rule (no keyword classification).
-        """
-        response = await self.search(
-            query,
-            tenant_id,
-            top_k=top_k,
-            document_id=document_id,
+        """Read structured rules from ``security_rules`` by optional filters."""
+        return await self.security_rule_repository.list_by_filters(
+            session, tenant_id, topic=topic, section=section
         )
-        if not response.results:
-            logger.warning(
-                "No relevant rules found for tenant=%s attack_type=%s document_id=%s",
-                tenant_id,
-                attack_type,
-                document_id,
-            )
-            return []
-        return [
-            SecurityRule(
-                title=_derive_title(result.text),
-                description=result.text,
-                attack_type=attack_type,
-                source=result.source,
-                page=result.page,
-                score=result.score,
-            )
-            for result in response.results
-        ]
+
+    async def _document_exists(
+        self, session: AsyncSession, tenant_id: str, reference: str
+    ) -> bool:
+        """Return ``True`` when a tenant document matches ``reference`` by filename."""
+        statement = select(DocumentORM.id).where(
+            DocumentORM.tenant_id == tenant_id,
+            DocumentORM.filename == reference,
+        )
+        result = await session.execute(statement)
+        return result.scalar() is not None
+
+    async def _record_missing_references(
+        self,
+        session: AsyncSession,
+        tenant_id: str,
+        document_id: str,
+        rules: list[SecurityRule],
+    ) -> None:
+        """Record and log internal documents referenced by rules but not uploaded."""
+        for rule in rules:
+            for reference in rule.linked_docs:
+                if await self._document_exists(session, tenant_id, reference):
+                    continue
+                await self.missing_reference_repository.create(
+                    session, tenant_id, document_id, reference, rule.section
+                )
+                logger.warning(
+                    "Не найден документ, упоминаемый в правиле: %s. "
+                    "Загрузите его для полного анализа.",
+                    reference,
+                )
 
     def get_metrics(self) -> MetricsResponse:
         """Return aggregated processing metrics."""
@@ -466,45 +479,6 @@ class DocumentService:
             total_chunks=self._metrics["total_chunks"],
             average_processing_seconds=round(average, 4),
         )
-
-
-def _derive_title(text: str) -> str:
-    line = next((line.strip() for line in text.splitlines() if line.strip()), "Rule")
-    return line[:80]
-
-
-_RULE_MARKER_RE = re.compile(r"(?:^|\n)[ \t]*(?:[\u2022\u2212\u2013\-]|\d{1,2}[.)])[ \t]+")
-
-
-def _split_rule_text(text: str) -> list[str]:
-    """Split a chunk bundling several enumerated rules into separate texts."""
-    stripped = text.strip()
-    if not stripped:
-        return []
-    pieces = [part.strip() for part in _RULE_MARKER_RE.split(stripped) if part.strip()]
-    return pieces or [stripped]
-
-
-def _split_rules(rules: list[SecurityRule]) -> list[SecurityRule]:
-    """Expand rules whose description bundles multiple enumerated rules."""
-    expanded: list[SecurityRule] = []
-    for rule in rules:
-        parts = _split_rule_text(rule.description)
-        if len(parts) == 1:
-            expanded.append(rule)
-            continue
-        for part in parts:
-            expanded.append(
-                SecurityRule(
-                    title=_derive_title(part),
-                    description=part,
-                    attack_type=rule.attack_type,
-                    source=rule.source,
-                    page=rule.page,
-                    score=rule.score,
-                )
-            )
-    return expanded
 
 
 _service: DocumentService | None = None

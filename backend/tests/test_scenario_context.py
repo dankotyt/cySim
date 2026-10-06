@@ -8,18 +8,18 @@ def test_build_scenario_context_formats_rules():
         SecurityRule(
             title="Не передавать пароли",
             description="Запрещено передавать учётные данные третьим лицам.",
-            attack_type="passwords",
-            source="policy.txt",
-            page=1,
-            score=0.9,
+            section="Пароли",
+            topic="passwords",
+            linked_docs=["Регламент доступа"],
+            document_id="doc-1",
         ),
         SecurityRule(
             title="Сообщать о фишинге",
             description="Подозрительные вложения пересылать в СБ.",
-            attack_type="phishing",
-            source="policy.txt",
-            page=2,
-            score=0.8,
+            section="Электронная почта",
+            topic="phishing",
+            linked_docs=[],
+            document_id="doc-1",
         ),
     ]
     context = build_scenario_context(rules)
@@ -27,8 +27,8 @@ def test_build_scenario_context_formats_rules():
     assert "Правило 1 [passwords]" in context
     assert "Правило 2 [phishing]" in context
     assert "Не передавать пароли" in context
-    assert "policy.txt (стр. 1" in context
-    assert "score=0.900" in context
+    assert "Раздел: Пароли" in context
+    assert "Связанные документы: Регламент доступа" in context
 
 
 def test_build_scenario_context_empty():
