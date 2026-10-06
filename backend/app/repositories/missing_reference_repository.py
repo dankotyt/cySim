@@ -48,6 +48,18 @@ class MissingReferenceRepository:
         session.add(self._to_orm(tenant_id, document_id, reference, section))
         await session.flush()
 
+    async def create_many(
+        self,
+        session: AsyncSession,
+        tenant_id: str,
+        document_id: str,
+        items: list[tuple[str, str]],
+    ) -> None:
+        """Record several ``(reference, section)`` missing references at once."""
+        for reference, section in items:
+            session.add(self._to_orm(tenant_id, document_id, reference, section))
+        await session.flush()
+
     async def list_by_document(
         self, session: AsyncSession, document_id: str
     ) -> list[dict]:

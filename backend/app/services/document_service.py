@@ -392,16 +392,18 @@ class DocumentService:
             session, tenant_id, topic=topic, section=section
         )
 
-    async def _document_exists(
-        self, session: AsyncSession, tenant_id: str, reference: str
-    ) -> bool:
-        """Return ``True`` when a tenant document matches ``reference`` by filename."""
-        statement = select(DocumentORM.id).where(
+    async def _existing_filenames(
+        self, session: AsyncSession, tenant_id: str, filenames: list[str]
+    ) -> set[str]:
+        """Return the subset of ``filenames`` already present for a tenant."""
+        if not filenames:
+            return set()
+        statement = select(DocumentORM.filename).where(
             DocumentORM.tenant_id == tenant_id,
-            DocumentORM.filename == reference,
+            DocumentORM.filename.in_(filenames),
         )
         result = await session.execute(statement)
-        return result.scalar() is not None
+        return set(result.scalars())
 
     async def _record_missing_references(
         self,
@@ -411,18 +413,36 @@ class DocumentService:
         rules: list[SecurityRule],
     ) -> None:
         """Record and log internal documents referenced by rules but not uploaded."""
+        # Deduplicate by reference, keeping the first section that mentions it.
+        references: dict[str, str] = {}
         for rule in rules:
             for reference in rule.linked_docs:
-                if await self._document_exists(session, tenant_id, reference):
-                    continue
-                await self.missing_reference_repository.create(
-                    session, tenant_id, document_id, reference, rule.section
-                )
-                logger.warning(
-                    "Не найден документ, упоминаемый в правиле: %s. "
-                    "Загрузите его для полного анализа.",
-                    reference,
-                )
+                reference = reference.strip()
+                if reference and reference not in references:
+                    references[reference] = rule.section
+        if not references:
+            return
+
+        existing = await self._existing_filenames(
+            session, tenant_id, list(references)
+        )
+        missing = [
+            (reference, section)
+            for reference, section in references.items()
+            if reference not in existing
+        ]
+        if not missing:
+            return
+
+        await self.missing_reference_repository.create_many(
+            session, tenant_id, document_id, missing
+        )
+        for reference, _ in missing:
+            logger.warning(
+                "Не найден документ, упоминаемый в правиле: %s. "
+                "Загрузите его для полного анализа.",
+                reference,
+            )
 
     def get_metrics(self) -> MetricsResponse:
         """Return aggregated processing metrics."""
