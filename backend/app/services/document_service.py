@@ -380,18 +380,6 @@ class DocumentService:
             session, tenant_id
         )
 
-    async def extract_rules(
-        self,
-        session: AsyncSession,
-        tenant_id: str,
-        topic: str | None = None,
-        section: str | None = None,
-    ) -> list[SecurityRule]:
-        """Read structured rules from ``security_rules`` by optional filters."""
-        return await self.security_rule_repository.list_by_filters(
-            session, tenant_id, topic=topic, section=section
-        )
-
     async def _existing_filenames(
         self, session: AsyncSession, tenant_id: str, filenames: list[str]
     ) -> set[str]:

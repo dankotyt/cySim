@@ -1,9 +1,9 @@
 """Package extracted security rules into LLM-ready context.
 
-This is the public seam between the RAG pipeline and the scenario-generation
-module: callers pass the typed :class:`SecurityRule` list returned by
-``DocumentService.extract_rules`` and receive a deterministic, prompt-ready
-text block that can be embedded directly into an LLM prompt.
+This is the public seam between the rule repository and the scenario-generation
+module: callers pass a list of typed :class:`SecurityRule` records and receive
+a deterministic, prompt-ready text block that can be embedded directly into an
+LLM prompt.
 """
 from ..models.document import SecurityRule
 
