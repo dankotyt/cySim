@@ -79,16 +79,30 @@ def parse_docx(content: bytes) -> ParsedDocument:
 
 
 def parse_pdf(content: bytes) -> ParsedDocument:
-    """Parse a PDF file page by page, preserving page boundaries."""
-    reader = PdfReader(io.BytesIO(content))
+    """Parse a PDF file page by page, preserving page boundaries.
+
+    Corrupt PDFs degrade gracefully: a failed ``PdfReader`` construction or a
+    failed page extraction falls back to OCR; if OCR also yields nothing, an
+    empty :class:`ParsedDocument` is returned.
+    """
     pages: list[PageText] = []
+    try:
+        reader = PdfReader(io.BytesIO(content))
+        for page_number, page in enumerate(reader.pages, start=1):
+            try:
+                extracted = page.extract_text() or ""
+            except Exception as exc:  # noqa: BLE001 - one bad page must not abort
+                logger.warning(
+                    "Failed to extract text from page %d: %s", page_number, exc
+                )
+                continue
+            cleaned = clean_text(extracted)
+            if cleaned:
+                pages.append(PageText(page_number=page_number, text=cleaned))
+    except Exception as exc:  # noqa: BLE001 - corrupt PDF falls back to OCR
+        logger.warning("Failed to parse PDF: %s", exc)
 
-    for page_number, page in enumerate(reader.pages, start=1):
-        cleaned = clean_text(page.extract_text() or "")
-        if cleaned:
-            pages.append(PageText(page_number=page_number, text=cleaned))
-
-    if not pages:  # scanned PDF: no embedded text, fall back to OCR
+    if not pages:  # scanned or corrupt PDF: fall back to OCR
         ocr_text = ocr_pdf_text(content)
         if ocr_text:
             cleaned_ocr = clean_text(ocr_text)
