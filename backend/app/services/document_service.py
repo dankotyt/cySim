@@ -89,10 +89,8 @@ class DocumentService:
         self.validator = validator or DocumentValidator(self.settings, self.embedding_provider)
         self.rule_structurer = rule_structurer or RuleStructurer(
             llm_provider=get_llm_provider(self.settings),
-            embedding_provider=self.embedding_provider,
             batch_size=self.settings.rule_structuring_batch_size,
             num_ctx=self.settings.llm_num_ctx,
-            dedup_threshold=self.settings.rule_dedup_threshold,
         )
 
         self._metrics = {
@@ -241,20 +239,24 @@ class DocumentService:
                 session, tenant_id, chunks
             )
 
-            rules = self.rule_structurer.structure(
+            result = self.rule_structurer.structure(
                 chunks, tenant_id, document.id
             )
             await self.security_rule_repository.create_many(
-                session, tenant_id, rules
+                session, tenant_id, result.rules
             )
             await self._record_missing_references(
-                session, tenant_id, document.id, rules
+                session, tenant_id, document.id, result.rules
             )
             logger.info(
-                "Structured %d rules for tenant=%s document_id=%s",
-                len(rules),
+                "Structured %d rules for tenant=%s document_id=%s "
+                "(failed_batches=%d, dropped_validation=%d, dropped_dedup=%d)",
+                len(result.rules),
                 tenant_id,
                 document.id,
+                len(result.failed_batches),
+                result.dropped_by_validation,
+                result.dropped_by_dedup,
             )
 
             document.page_count = len(parsed.pages)

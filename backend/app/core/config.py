@@ -51,7 +51,6 @@ class Settings(BaseSettings):
 
     # LLM rule structuring
     rule_structuring_batch_size: int = 5
-    rule_dedup_threshold: float = 0.9
 
     # Chunking. Sizes are in characters (~4 characters == 1 token for English);
     # tune these to match the 500-1000 token / 100-200 token overlap guidance

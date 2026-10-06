@@ -1,11 +1,11 @@
 """LLM-based structuring of document chunks into security rules."""
 import json
-import math
 import re
+import time
+from dataclasses import dataclass, field
 
 from ..core.logging import get_logger
 from ..models.document import Chunk, SecurityRule
-from ..utils.embeddings import EmbeddingProvider
 from .llm_provider import LLMProvider
 from .session_manager import SessionManager
 
@@ -56,6 +56,16 @@ ALLOWED_TOPICS: {topics}
 """
 
 
+@dataclass
+class StructureResult:
+    """Outcome of a structuring run, including per-batch diagnostics."""
+
+    rules: list[SecurityRule] = field(default_factory=list)
+    failed_batches: list[int] = field(default_factory=list)
+    dropped_by_validation: int = 0
+    dropped_by_dedup: int = 0
+
+
 def _normalize(text: str) -> str:
     """Collapse all whitespace so substrings can be compared reliably."""
     return " ".join(text.split())
@@ -87,15 +97,11 @@ class RuleStructurer:
     def __init__(
         self,
         llm_provider: LLMProvider,
-        embedding_provider: EmbeddingProvider,
         batch_size: int = 5,
         num_ctx: int = 8192,
-        dedup_threshold: float = 0.9,
     ) -> None:
         self.llm_provider = llm_provider
-        self.embedding_provider = embedding_provider
         self.batch_size = batch_size
-        self.dedup_threshold = dedup_threshold
         self.session_manager = SessionManager(llm_provider, num_ctx)
 
     def _system_prompt(self) -> str:
@@ -115,10 +121,10 @@ class RuleStructurer:
 
     def structure(
         self, chunks: list[Chunk], tenant_id: str, document_id: str
-    ) -> list[SecurityRule]:
+    ) -> StructureResult:
         """Batch chunks through the LLM and return validated, deduped rules."""
         if not chunks:
-            return []
+            return StructureResult()
 
         batches = [
             chunks[index : index + self.batch_size]
@@ -131,38 +137,64 @@ class RuleStructurer:
             document_id,
         )
 
+        started_total = time.perf_counter()
         raw_rules: list[dict] = []
         used_topics: list[str] = []
-        for batch in batches:
-            prompt = self._build_prompt(batch, used_topics)
-            raw = self.session_manager.generate(
-                prompt, system=self._system_prompt(), anchor=used_topics
-            )
-            parsed = self._parse(raw)
-            valid = self._validate(parsed, batch)
-            raw_rules.extend(valid)
-            for rule in valid:
-                if rule["topic"] not in used_topics:
-                    used_topics.append(rule["topic"])
+        failed_batches: list[int] = []
+        dropped_by_validation = 0
 
-        deduped = self._dedupe(raw_rules)
+        for batch_index, batch in enumerate(batches):
+            batch_started = time.perf_counter()
+            try:
+                prompt = self._build_prompt(batch, used_topics)
+                raw = self.session_manager.generate(
+                    prompt, system=self._system_prompt(), anchor=used_topics
+                )
+                parsed = self._parse(raw)
+                valid, dropped = self._validate(parsed, batch)
+                dropped_by_validation += dropped
+                raw_rules.extend(valid)
+                for rule in valid:
+                    if rule["topic"] not in used_topics:
+                        used_topics.append(rule["topic"])
+            except Exception as exc:  # noqa: BLE001 - one bad batch must not abort the run
+                failed_batches.append(batch_index)
+                logger.error(
+                    "Structuring batch %d failed: %s", batch_index, exc
+                )
+            finally:
+                logger.info(
+                    "Batch %d/%d took %.2fs",
+                    batch_index + 1,
+                    len(batches),
+                    time.perf_counter() - batch_started,
+                )
+
+        deduped, dropped_by_dedup = self._dedupe(raw_rules)
         logger.info(
-            "Extracted %d rules (%d dropped by dedup) for document_id=%s",
+            "Structuring finished in %.2fs: %d rules (%d dropped by dedup) "
+            "for document_id=%s",
+            time.perf_counter() - started_total,
             len(deduped),
-            len(raw_rules) - len(deduped),
+            dropped_by_dedup,
             document_id,
         )
-        return [
-            SecurityRule(
-                title=rule["title"],
-                description=rule["description"],
-                section=rule["section"],
-                topic=rule["topic"],
-                linked_docs=rule.get("linked_docs", []),
-                document_id=document_id,
-            )
-            for rule in deduped
-        ]
+        return StructureResult(
+            rules=[
+                SecurityRule(
+                    title=rule["title"],
+                    description=rule["description"],
+                    section=rule["section"],
+                    topic=rule["topic"],
+                    linked_docs=rule.get("linked_docs", []),
+                    document_id=document_id,
+                )
+                for rule in deduped
+            ],
+            failed_batches=failed_batches,
+            dropped_by_validation=dropped_by_validation,
+            dropped_by_dedup=dropped_by_dedup,
+        )
 
     @staticmethod
     def _parse(raw: str) -> list[dict]:
@@ -176,7 +208,7 @@ class RuleStructurer:
             return []
         return [rule for rule in rules if isinstance(rule, dict)]
 
-    def _validate(self, rules: list[dict], batch: list[Chunk]) -> list[dict]:
+    def _validate(self, rules: list[dict], batch: list[Chunk]) -> tuple[list[dict], int]:
         valid: list[dict] = []
         dropped = 0
         for raw in rules:
@@ -196,9 +228,7 @@ class RuleStructurer:
                 )
             else:
                 dropped += 1
-        if dropped:
-            logger.info("Dropped %d rules during validation", dropped)
-        return valid
+        return valid, dropped
 
     def _is_valid(self, raw: dict, batch: list[Chunk]) -> bool:
         topic = raw.get("topic")
@@ -220,39 +250,27 @@ class RuleStructurer:
             return False
 
         # Every number in the description must be present in the source chunk.
-        numbers = re.findall(r"\d+", description)
-        if any(number not in source_text for number in numbers):
+        # Compare token sets so "12" is not considered present inside "123".
+        description_numbers = set(re.findall(r"\b\d+\b", description))
+        source_numbers = set(re.findall(r"\b\d+\b", source_text))
+        if not description_numbers.issubset(source_numbers):
             return False
 
         return True
 
-    def _dedupe(self, rules: list[dict]) -> list[dict]:
-        if not rules:
-            return []
-        descriptions = [rule["description"] for rule in rules]
-        try:
-            embeddings = self.embedding_provider.embed_texts(descriptions)
-        except Exception as exc:  # noqa: BLE001 - dedup is best-effort
-            logger.warning("Embedding dedup unavailable (%s); keeping all rules", exc)
-            return rules
-
+    def _dedupe(self, rules: list[dict]) -> tuple[list[dict], int]:
+        """Drop rules whose ``(normalized description, section)`` key repeats."""
         kept: list[dict] = []
-        kept_embeddings: list[list[float]] = []
-        for rule, embedding in zip(rules, embeddings):
-            if any(
-                self._cosine(embedding, existing) > self.dedup_threshold
-                for existing in kept_embeddings
-            ):
+        seen: set[tuple[str, str]] = set()
+        dropped = 0
+        for rule in rules:
+            key = (_normalize(rule["description"]), rule["section"])
+            if key in seen:
+                dropped += 1
+                logger.info(
+                    "Dropped duplicate rule: %s", rule["description"][:80]
+                )
                 continue
+            seen.add(key)
             kept.append(rule)
-            kept_embeddings.append(embedding)
-        return kept
-
-    @staticmethod
-    def _cosine(a: list[float], b: list[float]) -> float:
-        dot = sum(x * y for x, y in zip(a, b))
-        norm_a = math.sqrt(sum(x * x for x in a))
-        norm_b = math.sqrt(sum(y * y for y in b))
-        if norm_a == 0.0 or norm_b == 0.0:
-            return 0.0
-        return dot / (norm_a * norm_b)
+        return kept, dropped
