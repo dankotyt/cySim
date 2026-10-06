@@ -40,8 +40,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version="0.1.0",
-        description="Document analysis (RAG) module for CyberSim: ingest security "
-        "documents and retrieve relevant rules via vector search.",
+        description="Document analysis module for CyberSim: ingest security "
+        "documents and retrieve relevant rules via full-text search.",
         lifespan=lifespan,
     )
 

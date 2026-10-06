@@ -1,1 +1,1 @@
-"""Parsing, chunking and embedding utilities."""
+"""Parsing, chunking and text utilities."""

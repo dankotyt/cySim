@@ -61,7 +61,7 @@ async def search_documents(
     min_score: float | None = Query(None, ge=0, le=1),
     service: DocumentService = Depends(get_service),
 ) -> SearchResponse:
-    """Semantic search across a tenant's vector store."""
+    """Full-text search across a tenant's stored chunks."""
     return await service.search(
         query=q,
         tenant_id=tenant_id,
@@ -113,5 +113,5 @@ async def delete_document(
     session: AsyncSession = Depends(get_db),
     service: DocumentService = Depends(get_service),
 ) -> DeleteResponse:
-    """Delete a document and all of its embeddings."""
+    """Delete a document and its derived records."""
     return await service.delete_document(session, document_id, tenant_id)

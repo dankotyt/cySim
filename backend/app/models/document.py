@@ -73,7 +73,7 @@ class ProcessResponse(BaseModel):
 
 
 class Chunk(BaseModel):
-    """A single semantic chunk with its provenance metadata."""
+    """A single text chunk with its provenance metadata."""
 
     id: str
     document_id: str
@@ -85,7 +85,7 @@ class Chunk(BaseModel):
 
 
 class SearchQuery(BaseModel):
-    """Request model for semantic search."""
+    """Request model for full-text search."""
 
     query: str
     tenant_id: str = DEFAULT_TENANT_ID
