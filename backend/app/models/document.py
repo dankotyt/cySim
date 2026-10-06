@@ -3,7 +3,9 @@ import uuid
 from datetime import datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from ..core.topics import ALLOWED_TOPICS
 
 
 def _utcnow() -> datetime:
@@ -120,6 +122,16 @@ class SecurityRule(BaseModel):
     linked_docs: list[str] = Field(default_factory=list)
     document_id: str
     created_at: datetime = Field(default_factory=_utcnow)
+
+    @field_validator("topic")
+    @classmethod
+    def _validate_topic(cls, value: str) -> str:
+        """Reject topics outside the controlled vocabulary."""
+        if value not in ALLOWED_TOPICS:
+            raise ValueError(
+                f"Invalid topic {value!r}; allowed: {ALLOWED_TOPICS}"
+            )
+        return value
 
 
 class MissingReference(BaseModel):

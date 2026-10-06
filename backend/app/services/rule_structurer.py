@@ -5,35 +5,12 @@ import time
 from dataclasses import dataclass, field
 
 from ..core.logging import get_logger
+from ..core.topics import ALLOWED_TOPICS
 from ..models.document import Chunk, SecurityRule
 from .llm_provider import LLMProvider
 from .session_manager import SessionManager
 
 logger = get_logger(__name__)
-
-# Controlled topic vocabulary. The LLM must pick exactly one of these; anything
-# that does not fit is mapped to "other". The first eight values double as the
-# scenario-generation attack types (see ``AttackType`` in models/scenario.py).
-ALLOWED_TOPICS: tuple[str, ...] = (
-    "phishing",
-    "vishing",
-    "baiting",
-    "pretexting",
-    "tailgating",
-    "quid_pro_quo",
-    "social_media_osint",
-    "usb_drop",
-    "passwords",
-    "physical_security",
-    "data_handling",
-    "remote_work",
-    "insider_threat",
-    "supply_chain",
-    "leaked_credentials",
-    "access_control",
-    "incidents",
-    "other",
-)
 
 _SYSTEM_PROMPT = """\
 /no_think
