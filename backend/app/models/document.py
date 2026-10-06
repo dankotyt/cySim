@@ -137,7 +137,7 @@ class SecurityRule(BaseModel):
 class MissingReference(BaseModel):
     """An internal document referenced by a rule but not yet uploaded."""
 
-    id: str
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     tenant_id: str
     document_id: str
     reference: str
