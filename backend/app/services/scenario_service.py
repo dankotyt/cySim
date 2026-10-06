@@ -1,5 +1,4 @@
 """Scenario generation business logic: semantic rule search → prompt → LLM → persist."""
-import json
 import math
 import uuid
 
@@ -22,6 +21,7 @@ from ..repositories.department_repository import DepartmentRepository
 from ..repositories.scenario_repository import ScenarioRepository
 from ..repositories.security_rule_repository import SecurityRuleRepository
 from ..utils.embeddings import EmbeddingProvider, get_embedding_provider
+from ..utils.llm_json import parse_llm_json_object
 from .llm_provider import LLMProvider, get_llm_provider
 from .rule_structurer import ALLOWED_TOPICS
 from .scenario_context import build_scenario_context
@@ -325,7 +325,7 @@ class ScenarioService:
         request: GenerateScenarioRequest,
         topics_used: list[str],
     ) -> Scenario:
-        data = self._loads_json(raw)
+        data = parse_llm_json_object(raw)
         fields = {
             key: value
             for key, value in data.items()
@@ -342,26 +342,6 @@ class ScenarioService:
             )
         except ValidationError as exc:
             raise ValueError(f"LLM JSON failed validation: {exc}") from exc
-
-    @staticmethod
-    def _loads_json(raw: str) -> dict:
-        """Parse an LLM response, tolerating markdown fences and stray text."""
-        text = (raw or "").strip()
-        if text.startswith("```"):
-            text = text.strip("`")
-            if text.startswith("json"):
-                text = text[4:].strip()
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
-            start = text.find("{")
-            end = text.rfind("}")
-            if start == -1 or end <= start:
-                raise
-            parsed = json.loads(text[start : end + 1])
-        if not isinstance(parsed, dict):
-            raise ValueError("LLM output must be a JSON object")
-        return parsed
 
     async def get_scenario(
         self, session: AsyncSession, scenario_id: str, tenant_id: str | None = None

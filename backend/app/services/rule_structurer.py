@@ -1,5 +1,4 @@
 """LLM-based structuring of document chunks into security rules."""
-import json
 import re
 import time
 from dataclasses import dataclass, field
@@ -7,6 +6,7 @@ from dataclasses import dataclass, field
 from ..core.logging import get_logger
 from ..core.topics import ALLOWED_TOPICS
 from ..models.document import Chunk, SecurityRule
+from ..utils.llm_json import parse_llm_json_object
 from .llm_provider import LLMProvider
 from .session_manager import SessionManager
 
@@ -46,26 +46,6 @@ class StructureResult:
 def _normalize(text: str) -> str:
     """Collapse all whitespace so substrings can be compared reliably."""
     return " ".join(text.split())
-
-
-def _parse_json(raw: str) -> dict:
-    """Parse an LLM response, tolerating markdown fences and stray text."""
-    text = (raw or "").strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.startswith("json"):
-            text = text[4:].strip()
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}")
-        if start == -1 or end <= start:
-            raise
-        parsed = json.loads(text[start : end + 1])
-    if not isinstance(parsed, dict):
-        raise ValueError("LLM output must be a JSON object")
-    return parsed
 
 
 class RuleStructurer:
@@ -176,8 +156,8 @@ class RuleStructurer:
     @staticmethod
     def _parse(raw: str) -> list[dict]:
         try:
-            data = _parse_json(raw)
-        except (json.JSONDecodeError, ValueError) as exc:
+            data = parse_llm_json_object(raw)
+        except ValueError as exc:
             logger.warning("Failed to parse LLM rule response: %s", exc)
             return []
         rules = data.get("rules", [])
