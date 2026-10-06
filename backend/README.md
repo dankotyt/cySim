@@ -170,6 +170,12 @@ alembic upgrade head
 psql "$DATABASE_URL" -f migrations/init.sql
 ```
 
+> **ChromaDB is gone.** Chunks and rules are stored entirely in PostgreSQL
+> (`document_chunks`, `security_rules`); there is no vector store. Any Chroma
+> collections/data created by older versions live outside Alembic — deleting
+> them is a separate ops step (`chroma_data` volume / `data/chroma` directory),
+> not a database migration.
+
 ## Service layer
 
 Other modules (e.g. scenario generation) consume `DocumentService` directly.
