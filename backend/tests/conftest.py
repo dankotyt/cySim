@@ -15,7 +15,6 @@ def settings(tmp_path) -> Settings:
         chroma_persist_dir=tmp_path / "chroma",
         quarantine_dir=tmp_path / "quarantine",
         embedding_provider="ollama",
-        embedding_model="bge-m3",
         chunk_size=800,
         chunk_overlap=100,
         min_document_chars=10,
