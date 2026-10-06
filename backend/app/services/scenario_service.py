@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import Settings, get_settings
 from ..core.logging import get_logger
+from ..core.topics import ATTACK_TYPE_TOPICS
 from ..models.document import SecurityRule
 from ..models.scenario import (
     ATTACK_TYPES,
@@ -52,7 +53,7 @@ class ScenarioServiceError(Exception):
 
 
 class NoRulesFoundError(ScenarioServiceError):
-    """Raised when no rules survive semantic search and department filtering."""
+    """Raised when no rules match the attack type topics and department filter."""
 
 
 class DepartmentNotFoundError(ScenarioServiceError):

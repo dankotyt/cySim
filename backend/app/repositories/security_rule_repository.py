@@ -51,11 +51,18 @@ class SecurityRuleRepository:
         """Return every rule for a tenant."""
         return await self._list(session, tenant_id)
 
-    async def list_by_topic(
-        self, session: AsyncSession, tenant_id: str, topic: str
+    async def list_by_topics(
+        self, session: AsyncSession, tenant_id: str, topics: list[str]
     ) -> list[SecurityRule]:
-        """Return every rule of a topic for a tenant."""
-        return await self._list(session, tenant_id, topic=topic)
+        """Return every rule whose topic is one of ``topics`` for a tenant."""
+        if not topics:
+            return []
+        statement = select(SecurityRuleORM).where(
+            SecurityRuleORM.tenant_id == tenant_id,
+            SecurityRuleORM.topic.in_(topics),
+        )
+        result = await session.execute(statement)
+        return [self._to_rule(orm) for orm in result.scalars()]
 
     async def list_by_filters(
         self,
