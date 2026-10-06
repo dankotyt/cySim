@@ -2,8 +2,12 @@
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.topics import ALLOWED_TOPICS
 from ..models.db_models import DepartmentORM
 from ..models.department import Department
+
+# The reserved department name that maps to the full topic vocabulary.
+DEFAULT_DEPARTMENT = "default"
 
 
 class DepartmentRepository:
@@ -48,6 +52,25 @@ class DepartmentRepository:
         result = await session.execute(statement)
         orm = result.scalar_one_or_none()
         return self._to_department(orm) if orm is not None else None
+
+    async def get_or_create_default(
+        self, session: AsyncSession, tenant_id: str
+    ) -> Department:
+        """Return the default department, creating it lazily on first access.
+
+        The default department is unrestricted: it is created with
+        ``allowed_topics = ALLOWED_TOPICS`` the first time it is requested.
+        """
+        existing = await self.get_by_name(session, tenant_id, DEFAULT_DEPARTMENT)
+        if existing is not None:
+            return existing
+        department = Department(
+            tenant_id=tenant_id,
+            name=DEFAULT_DEPARTMENT,
+            allowed_topics=list(ALLOWED_TOPICS),
+        )
+        await self.create(session, department)
+        return department
 
     async def list_by_tenant(
         self, session: AsyncSession, tenant_id: str

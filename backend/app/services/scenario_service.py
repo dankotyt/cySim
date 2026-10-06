@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import Settings, get_settings
 from ..core.logging import get_logger
-from ..core.topics import ALLOWED_TOPICS, ATTACK_TYPE_TOPICS
+from ..core.topics import ATTACK_TYPE_TOPICS
 from ..models.scenario import (
     ATTACK_TYPES,
     AttackType,
@@ -16,7 +16,10 @@ from ..models.scenario import (
     GenerateScenarioResponse,
     Scenario,
 )
-from ..repositories.department_repository import DepartmentRepository
+from ..repositories.department_repository import (
+    DEFAULT_DEPARTMENT,
+    DepartmentRepository,
+)
 from ..repositories.scenario_repository import ScenarioRepository
 from ..repositories.security_rule_repository import SecurityRuleRepository
 from ..utils.llm_json import parse_llm_json_object
@@ -26,9 +29,6 @@ from .scenario_prompts import SCENARIO_SYSTEM_PROMPT, build_scenario_prompt
 from .session_manager import SessionManager
 
 logger = get_logger(__name__)
-
-# The reserved department name that maps to the full topic vocabulary.
-DEFAULT_DEPARTMENT = "default"
 
 
 class ScenarioServiceError(Exception):
@@ -210,12 +210,15 @@ class ScenarioService:
     ) -> list[str]:
         """Return the topic allowlist for a department.
 
-        The reserved ``default`` department is unrestricted and maps to the full
-        :data:`ALLOWED_TOPICS` vocabulary; every other department must exist in
-        the ``departments`` table.
+        The reserved ``default`` department is unrestricted and is created
+        lazily with the full :data:`ALLOWED_TOPICS` vocabulary on first access;
+        every other department must already exist in the ``departments`` table.
         """
         if department == DEFAULT_DEPARTMENT:
-            return list(ALLOWED_TOPICS)
+            stored = await self.department_repository.get_or_create_default(
+                session, tenant_id
+            )
+            return stored.allowed_topics
         stored = await self.department_repository.get_by_name(
             session, tenant_id, department
         )
