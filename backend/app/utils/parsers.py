@@ -52,7 +52,6 @@ def clean_text(text: str) -> str:
 def _drop_garbage_lines(text: str) -> str:
     lines = []
     for line in text.split("\n"):
-        line = re.sub(r"[ \t]+", " ", line)
         line = line.strip()
         if line:
             lines.append(line)
