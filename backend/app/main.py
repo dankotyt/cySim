@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.v1.documents import router as documents_router
+from app.api.v1.rules import router as rules_router
 from app.api.v1.scenarios import router as scenarios_router
 from app.core.config import Settings, get_settings
 from app.core.database import get_database
@@ -18,6 +19,7 @@ from app.services.document_service import (
 from app.services.scenario_service import (
     DepartmentNotFoundError,
     NoRulesFoundError,
+    RuleNotFoundError,
     ScenarioGenerationError,
     ScenarioNotFoundError,
     ScenarioServiceError,
@@ -55,6 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.include_router(documents_router)
+    app.include_router(rules_router)
     app.include_router(scenarios_router)
 
     @app.exception_handler(NoRulesFoundError)
@@ -64,6 +67,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(DepartmentNotFoundError)
     async def handle_department_not_found(
         request: Request, exc: DepartmentNotFoundError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(RuleNotFoundError)
+    async def handle_rule_not_found(
+        request: Request, exc: RuleNotFoundError
     ) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc)})
 

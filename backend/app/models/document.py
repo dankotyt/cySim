@@ -121,7 +121,6 @@ class SecurityRule(BaseModel):
     section: str
     topic: str
     linked_docs: list[str] = Field(default_factory=list)
-    document_id: str
     created_at: datetime = Field(default_factory=_utcnow)
 
     @field_validator("topic")
@@ -133,23 +132,6 @@ class SecurityRule(BaseModel):
                 f"Invalid topic {value!r}; allowed: {ALLOWED_TOPICS}"
             )
         return value
-
-
-class MissingReference(BaseModel):
-    """An internal document referenced by a rule but not yet uploaded."""
-
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    tenant_id: str
-    document_id: str
-    reference: str
-    section: str
-    created_at: datetime = Field(default_factory=_utcnow)
-
-
-class MissingReferencesClearResponse(BaseModel):
-    """Result of clearing missing references for a tenant."""
-
-    deleted: int
 
 
 class DeleteResponse(BaseModel):

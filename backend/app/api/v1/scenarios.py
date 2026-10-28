@@ -26,7 +26,7 @@ async def generate_scenario(
     session: AsyncSession = Depends(get_db),
     service: ScenarioService = Depends(get_service),
 ) -> GenerateScenarioResponse:
-    """Generate a training scenario for the given attack type."""
+    """Generate a training scenario for a single rule."""
     return await service.generate_scenario(session, request)
 
 
@@ -36,7 +36,7 @@ async def generate_all_scenarios(
     session: AsyncSession = Depends(get_db),
     service: ScenarioService = Depends(get_service),
 ) -> BatchGenerateResponse:
-    """Generate scenarios for every attack type, continuing past per-type failures."""
+    """Generate one scenario per matching rule, continuing past per-rule failures."""
     return await service.generate_all_scenarios(session, request)
 
 
@@ -54,10 +54,13 @@ async def get_scenario(
 @router.get("", response_model=list[Scenario])
 async def list_scenarios(
     tenant_id: str | None = None,
+    rule_id: str | None = None,
     session: AsyncSession = Depends(get_db),
     service: ScenarioService = Depends(get_service),
 ) -> list[Scenario]:
-    """List all scenarios, optionally filtered by tenant."""
+    """List scenarios, optionally filtered by tenant or by rule."""
+    if rule_id is not None:
+        return await service.list_scenarios_by_rule(session, rule_id)
     return await service.list_scenarios(session, tenant_id)
 
 

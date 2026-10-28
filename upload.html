@@ -4,7 +4,10 @@
     <meta charset="UTF-8">
     <title>CyberSim — загрузка документов</title>
     <style>
-        * { box-sizing: border-box; }
+        * {
+            box-sizing: border-box;
+        }
+
         body {
             font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
             max-width: 900px;
@@ -13,15 +16,25 @@
             background: #f5f7fa;
             color: #1a1a1a;
         }
-        h1 { color: #2c3e50; margin-bottom: 8px; }
-        .subtitle { color: #7f8c8d; margin-bottom: 30px; }
+
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            color: #7f8c8d;
+            margin-bottom: 30px;
+        }
+
         .card {
             background: white;
             border-radius: 8px;
             padding: 24px;
             margin-bottom: 20px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
         }
+
         .card h2 {
             margin-top: 0;
             font-size: 18px;
@@ -29,7 +42,14 @@
             border-bottom: 2px solid #ecf0f1;
             padding-bottom: 12px;
         }
-        label { display: block; margin-bottom: 6px; font-weight: 500; font-size: 14px; }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
         input[type="text"], input[type="file"], textarea {
             width: 100%;
             padding: 10px;
@@ -39,7 +59,12 @@
             margin-bottom: 12px;
             font-family: inherit;
         }
-        input[type="file"] { padding: 8px; background: #fafbfc; }
+
+        input[type="file"] {
+            padding: 8px;
+            background: #fafbfc;
+        }
+
         button {
             background: #3498db;
             color: white;
@@ -50,8 +75,16 @@
             cursor: pointer;
             font-weight: 500;
         }
-        button:hover { background: #2980b9; }
-        button:disabled { background: #bdc3c7; cursor: not-allowed; }
+
+        button:hover {
+            background: #2980b9;
+        }
+
+        button:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+
         pre {
             background: #2c3e50;
             color: #ecf0f1;
@@ -62,79 +95,135 @@
             line-height: 1.5;
             max-height: 400px;
         }
-        .status-ok { color: #27ae60; }
-        .status-err { color: #e74c3c; }
-        .row { display: flex; gap: 12px; align-items: flex-end; }
-        .row > div { flex: 1; }
+
+        .status-ok {
+            color: #27ae60;
+        }
+
+        .status-err {
+            color: #e74c3c;
+        }
+
+        .row {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .row > div {
+            flex: 1;
+        }
     </style>
 </head>
 <body>
-    <h1>🛡️ CyberSim — загрузка документов</h1>
-    <p class="subtitle">Загрузка, обработка и поиск по документам ИБ</p>
+<h1>🛡️ CyberSim — загрузка документов</h1>
+<p class="subtitle">Загрузка, обработка и поиск по документам ИБ</p>
 
-    <!-- 1. ЗАГРУЗКА -->
-    <div class="card">
-        <h2>1. Загрузить документ</h2>
-        <label for="fileInput">Выберите файл (PDF, DOCX, TXT):</label>
-        <input type="file" id="fileInput" accept=".pdf,.docx,.txt">
-        <label for="tenantId">Tenant ID:</label>
-        <input type="text" id="tenantId" value="test">
-        <button onclick="uploadFile()">Загрузить</button>
-        <pre id="uploadResult">Результат появится здесь...</pre>
-    </div>
+<!-- 1. ЗАГРУЗКА -->
+<div class="card">
+    <h2>1. Загрузить документ</h2>
+    <label for="fileInput">Выберите файл (PDF, DOCX, TXT):</label>
+    <input type="file" id="fileInput" accept=".pdf,.docx,.txt" multiple>
+    <label for="tenantId">Tenant ID:</label>
+    <input type="text" id="tenantId" value="test">
+    <button onclick="uploadFile()">Загрузить</button>
+    <pre id="uploadResult">Результат появится здесь...</pre>
+</div>
 
-    <!-- 2. ОБРАБОТКА -->
-    <div class="card">
-        <h2>2. Обработать документ</h2>
-        <label for="processDocId">Document ID (из шага 1):</label>
-        <input type="text" id="processDocId" placeholder="UUID из ответа загрузки">
-        <button onclick="processDocument()">Обработать</button>
-        <pre id="processResult">Результат появится здесь...</pre>
-    </div>
+<!-- 2. ОБРАБОТКА -->
+<div class="card">
+    <h2>2. Обработать документ</h2>
+    <label for="processDocId">Document ID (из шага 1):</label>
+    <input type="text" id="processDocId" placeholder="UUID из ответа загрузки">
+    <button onclick="processDocument()">Обработать</button>
+    <pre id="processResult">Результат появится здесь...</pre>
+</div>
 
-    <!-- 3. ПОИСК -->
-    <div class="card">
-        <h2>3. Поиск по документам</h2>
-        <div class="row">
-            <div>
-                <label for="searchQuery">Запрос:</label>
-                <input type="text" id="searchQuery" value="пароли">
-            </div>
-            <div>
-                <label for="searchTenant">Tenant ID:</label>
-                <input type="text" id="searchTenant" value="test">
-            </div>
+<!-- 3. ПОИСК -->
+<div class="card">
+    <h2>3. Поиск по документам</h2>
+    <div class="row">
+        <div>
+            <label for="searchQuery">Запрос:</label>
+            <input type="text" id="searchQuery" value="пароли">
         </div>
-        <button onclick="searchDocuments()">Искать</button>
-        <pre id="searchResult">Результат появится здесь...</pre>
+        <div>
+            <label for="searchTenant">Tenant ID:</label>
+            <input type="text" id="searchTenant" value="test">
+        </div>
     </div>
+    <button onclick="searchDocuments()">Искать</button>
+    <pre id="searchResult">Результат появится здесь...</pre>
+</div>
 
-    <!-- 4. СПИСОК ДОКУМЕНТОВ -->
-    <div class="card">
-        <h2>4. Проверка состояния</h2>
-        <button onclick="checkHealth()">Проверить /health</button>
-        <button onclick="listDocuments()" style="margin-left:8px;">Список документов</button>
-        <pre id="healthResult">Результат появится здесь...</pre>
+<!-- 4. СПИСОК ДОКУМЕНТОВ -->
+<div class="card">
+    <h2>4. Проверка состояния</h2>
+    <button onclick="checkHealth()">Проверить /health</button>
+    <button onclick="listDocuments()" style="margin-left:8px;">Список документов</button>
+    <pre id="healthResult">Результат появится здесь...</pre>
+</div>
+
+<!-- 5. ПРАВИЛА -->
+<div class="card">
+    <h2>5. Правила</h2>
+    <label for="rulesTenantId">Tenant ID:</label>
+    <input type="text" id="rulesTenantId" value="test">
+    <button onclick="loadRules()">Список правил</button>
+    <div id="rulesList" style="margin-top:12px;">
+        <p style="color:#7f8c8d;">Нажмите «Список правил», чтобы получить id правил для генерации.</p>
     </div>
+</div>
+
+<!-- 6. ГЕНЕРАЦИЯ СЦЕНАРИЕВ -->
+<div class="card">
+    <h2>6. Генерация сценариев</h2>
+    <div class="row">
+        <div>
+            <label for="genTenantId">Tenant ID:</label>
+            <input type="text" id="genTenantId" value="test">
+        </div>
+        <div>
+            <label for="genDepartment">Отдел:</label>
+            <input type="text" id="genDepartment" value="default">
+        </div>
+        <div>
+            <label for="genSteps">Шагов (пусто — из .env, дефолт 3):</label>
+            <input type="text" id="genSteps" placeholder="3">
+        </div>
+    </div>
+    <label for="genRuleId">Rule ID (для одиночной генерации):</label>
+    <input type="text" id="genRuleId" placeholder="UUID правила из шага 5">
+    <button onclick="generateOne()">Сгенерировать один (по rule_id)</button>
+    <button onclick="generateAll()" style="margin-left:8px; background:#27ae60;">Сгенерировать все типы</button>
+    <button onclick="loadScenarios()" style="margin-left:8px; background:#7f8c8d;">Обновить список</button>
+
+    <div id="scenariosList" style="margin-top:20px;">
+        <p style="color:#7f8c8d;">Нажмите «Обновить список», чтобы загрузить существующие сценарии.</p>
+    </div>
+    <pre id="generateResult">Результат появится здесь...</pre>
+</div>
 
 <script>
-const API = "http://localhost:8000";
+    const API = "http://localhost:8000";
 
-async function uploadFile() {
+    async function uploadFile() {
     const fileInput = document.getElementById('fileInput');
     const tenantId = document.getElementById('tenantId').value;
     const out = document.getElementById('uploadResult');
 
     if (!fileInput.files.length) {
-        out.innerHTML = '<span class="status-err">❌ Файл не выбран</span>';
+        out.innerHTML = '<span class="status-err">❌ Файлы не выбраны</span>';
         return;
     }
 
     const formData = new FormData();
-    formData.append('files', fileInput.files[0]);
+    for (const file of fileInput.files) {
+        formData.append('files', file);
+    }
     formData.append('tenant_id', tenantId);
 
-    out.textContent = '⏳ Загрузка...';
+    out.textContent = `⏳ Загрузка ${fileInput.files.length} файл(ов)...`;
 
     try {
         const res = await fetch(`${API}/api/v1/documents/upload`, {
@@ -144,83 +233,267 @@ async function uploadFile() {
         const data = await res.json();
         out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
 
-        // Автозаполнение document_id
-        if (res.ok && data[0] && data[0].document_id) {
-            document.getElementById('processDocId').value = data[0].document_id;
+        // Бэкенд возвращает массив UploadResponse — берём первый
+        // document_id и подставляем в шаг 2.
+        const first = Array.isArray(data) ? data[0] : data;
+        if (res.ok && first && first.document_id) {
+            document.getElementById('processDocId').value = first.document_id;
         }
     } catch (e) {
         out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
     }
 }
 
-async function processDocument() {
-    const docId = document.getElementById('processDocId').value;
-    const tenantId = document.getElementById('tenantId').value;
-    const out = document.getElementById('processResult');
-
-    out.textContent = '⏳ Обработка... (может занять 10-30 секунд)';
-
-    try {
-        const res = await fetch(`${API}/api/v1/documents/process`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ document_id: docId, tenant_id: tenantId })
-        });
-        const data = await res.json();
-        out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
-    } catch (e) {
-        out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
-    }
-}
-
-async function searchDocuments() {
-    const q = document.getElementById('searchQuery').value;
-    const tenantId = document.getElementById('searchTenant').value;
-    const out = document.getElementById('searchResult');
-
-    out.textContent = '⏳ Поиск...';
-
-    try {
-        const res = await fetch(
-            `${API}/api/v1/documents/search?q=${encodeURIComponent(q)}&tenant_id=${tenantId}`
-        );
-        const data = await res.json();
-        out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
-    } catch (e) {
-        out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
-    }
-}
-
-async function checkHealth() {
-    const out = document.getElementById('healthResult');
-    try {
-        const res = await fetch(`${API}/health`);
-        const data = await res.json();
-        out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
-    } catch (e) {
-        out.innerHTML = `<span class="status-err">❌ Backend недоступен: ${e.message}</span>`;
-    }
-}
-
-async function listDocuments() {
-    const out = document.getElementById('healthResult');
-    const tenantId = document.getElementById('tenantId').value;
-    try {
-        // Пробуем получить метаданные по последнему document_id
+    async function processDocument() {
         const docId = document.getElementById('processDocId').value;
-        if (!docId) {
-            out.textContent = 'Введите Document ID в шаге 2';
+        const tenantId = document.getElementById('tenantId').value;
+        const out = document.getElementById('processResult');
+
+        out.textContent = '⏳ Обработка... (может занять 10-30 секунд)';
+
+        try {
+            const res = await fetch(`${API}/api/v1/documents/process`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({document_id: docId, tenant_id: tenantId})
+            });
+            const data = await res.json();
+            out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
+        } catch (e) {
+            out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
+        }
+    }
+
+    async function searchDocuments() {
+        const q = document.getElementById('searchQuery').value;
+        const tenantId = document.getElementById('searchTenant').value;
+        const out = document.getElementById('searchResult');
+
+        out.textContent = '⏳ Поиск...';
+
+        try {
+            const res = await fetch(
+                `${API}/api/v1/documents/search?q=${encodeURIComponent(q)}&tenant_id=${tenantId}`
+            );
+            const data = await res.json();
+            out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
+        } catch (e) {
+            out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
+        }
+    }
+
+    async function checkHealth() {
+        const out = document.getElementById('healthResult');
+        try {
+            const res = await fetch(`${API}/health`);
+            const data = await res.json();
+            out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
+        } catch (e) {
+            out.innerHTML = `<span class="status-err">❌ Backend недоступен: ${e.message}</span>`;
+        }
+    }
+
+    async function listDocuments() {
+        const out = document.getElementById('healthResult');
+        const tenantId = document.getElementById('tenantId').value;
+        try {
+            // Пробуем получить метаданные по последнему document_id
+            const docId = document.getElementById('processDocId').value;
+            if (!docId) {
+                out.textContent = 'Введите Document ID в шаге 2';
+                return;
+            }
+            const res = await fetch(
+                `${API}/api/v1/documents/${docId}?tenant_id=${tenantId}`
+            );
+            const data = await res.json();
+            out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
+        } catch (e) {
+            out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
+        }
+    }
+
+    async function generateOne() {
+        const tenantId = document.getElementById('genTenantId').value;
+        const department = document.getElementById('genDepartment').value;
+        const ruleId = document.getElementById('genRuleId').value.trim();
+        const stepsRaw = document.getElementById('genSteps').value.trim();
+        const out = document.getElementById('generateResult');
+
+        if (!ruleId) {
+            out.textContent = 'Введите Rule ID (из шага 5).';
             return;
         }
-        const res = await fetch(
-            `${API}/api/v1/documents/${docId}?tenant_id=${tenantId}`
-        );
-        const data = await res.json();
-        out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
-    } catch (e) {
-        out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
+
+        out.textContent = `⏳ Генерация сценария по правилу ${ruleId} для tenant=${tenantId}, отдел=${department}...\n(может занять 20–60 секунд)`;
+
+        const body = {tenant_id: tenantId, rule_id: ruleId, department: department};
+        if (stepsRaw) body.num_steps = parseInt(stepsRaw, 10);
+
+        try {
+            const res = await fetch(`${API}/api/v1/scenarios/generate`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
+            if (res.ok) loadScenarios();
+        } catch (e) {
+            out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
+        }
     }
-}
+
+    async function generateAll() {
+        const tenantId = document.getElementById('genTenantId').value;
+        const department = document.getElementById('genDepartment').value;
+        const stepsRaw = document.getElementById('genSteps').value.trim();
+        const out = document.getElementById('generateResult');
+
+        out.textContent = `⏳ Массовая генерация для tenant=${tenantId}, отдел=${department}...\nЭто займёт несколько минут. Не закрывайте вкладку.`;
+
+        const body = {tenant_id: tenantId, department: department};
+        if (stepsRaw) body.num_steps = parseInt(stepsRaw, 10);
+
+        try {
+            const res = await fetch(`${API}/api/v1/scenarios/generate-all`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+
+            let summary = `HTTP ${res.status}\n`;
+            if (res.ok) {
+                summary += `✅ Создано сценариев: ${data.total_generated}\n`;
+                summary += `⏭️ Пропущено (нет правил): ${data.total_skipped}\n`;
+                if (data.skipped && data.skipped.length) {
+                    summary += `   Список: ${data.skipped.join(', ')}\n`;
+                }
+                if (data.errors && data.errors.length) {
+                    summary += `❌ Ошибок: ${data.errors.length}\n`;
+                    data.errors.forEach(e => {
+                        summary += `   ${e.attack_type}: ${e.error}\n`;
+                    });
+                }
+                summary += `\nПолный ответ:\n${JSON.stringify(data, null, 2)}`;
+            } else {
+                summary += JSON.stringify(data, null, 2);
+            }
+            out.textContent = summary;
+            loadScenarios();
+        } catch (e) {
+            out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
+        }
+    }
+
+    async function loadRules() {
+        const tenantId = document.getElementById('rulesTenantId').value;
+        const list = document.getElementById('rulesList');
+
+        list.innerHTML = '<p>⏳ Загрузка...</p>';
+
+        try {
+            const res = await fetch(`${API}/api/v1/rules?tenant_id=${tenantId}`);
+            const data = await res.json();
+
+            if (!res.ok) {
+                list.innerHTML = `<span class="status-err">❌ HTTP ${res.status}</span>`;
+                return;
+            }
+            if (!Array.isArray(data) || data.length === 0) {
+                list.innerHTML = '<p style="color:#7f8c8d;">Правил пока нет.</p>';
+                return;
+            }
+
+            list.innerHTML = `<p><strong>Правил у tenant «${tenantId}»: ${data.length}</strong></p>`;
+            data.forEach(r => {
+                const div = document.createElement('div');
+                div.style.cssText = 'border:1px solid #ddd; border-radius:6px; padding:8px; margin-bottom:6px; background:#fafbfc;';
+                div.innerHTML = `
+                    <strong>[${r.topic}]</strong> ${r.title}<br>
+                    <small style="color:#7f8c8d;">id=${r.id}</small>
+                    <button onclick="useRuleId('${r.id}')" style="padding:2px 8px; font-size:11px; margin-left:8px;">Использовать</button>
+                `;
+                list.appendChild(div);
+            });
+        } catch (e) {
+            list.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
+        }
+    }
+
+    function useRuleId(id) {
+        document.getElementById('genRuleId').value = id;
+    }
+
+    async function loadScenarios() {
+        const tenantId = document.getElementById('genTenantId').value;
+        const list = document.getElementById('scenariosList');
+
+        list.innerHTML = '<p>⏳ Загрузка...</p>';
+
+        try {
+            const res = await fetch(`${API}/api/v1/scenarios?tenant_id=${tenantId}`);
+            const data = await res.json();
+
+            if (!res.ok) {
+                list.innerHTML = `<span class="status-err">❌ HTTP ${res.status}</span>`;
+                return;
+            }
+            if (!Array.isArray(data) || data.length === 0) {
+                list.innerHTML = '<p style="color:#7f8c8d;">Сценариев пока нет.</p>';
+                return;
+            }
+
+            list.innerHTML = `<p><strong>Сценариев у tenant «${tenantId}»: ${data.length}</strong></p>`;
+            data.forEach(s => {
+                const div = document.createElement('div');
+                div.style.cssText = 'border:1px solid #ddd; border-radius:6px; padding:12px; margin-bottom:8px; background:#fafbfc;';
+                div.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+                    <div>
+                        <strong>${s.title || '(без названия)'}</strong><br>
+                        <small style="color:#7f8c8d;">
+                            ${s.attack_type} · id=${s.id.substring(0, 8)}… · ${s.created_at || ''}
+                        </small>
+                    </div>
+                    <div>
+                        <button onclick="toggleScenario('${s.id}')" style="padding:6px 12px; font-size:12px;">JSON</button>
+                        <button onclick="deleteScenario('${s.id}')" style="padding:6px 12px; font-size:12px; background:#e74c3c;">Удалить</button>
+                    </div>
+                </div>
+                <pre id="scenario-${s.id}" style="display:none; margin-top:10px;">${JSON.stringify(s, null, 2)}</pre>
+            `;
+                list.appendChild(div);
+            });
+        } catch (e) {
+            list.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
+        }
+    }
+
+    function toggleScenario(id) {
+        const el = document.getElementById(`scenario-${id}`);
+        if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    }
+
+    async function deleteScenario(id) {
+        if (!confirm(`Удалить сценарий ${id.substring(0, 8)}…?`)) return;
+        try {
+            const res = await fetch(`${API}/api/v1/scenarios/${id}`, {method: 'DELETE'});
+            if (res.ok || res.status === 204) {
+                loadScenarios();
+            } else {
+                alert(`Ошибка удаления: HTTP ${res.status}`);
+            }
+        } catch (e) {
+            alert(`Ошибка сети: ${e.message}`);
+        }
+    }
+
+    // Автозагрузка сценариев при открытии страницы
+    document.addEventListener('DOMContentLoaded', () => {
+        loadScenarios();
+    });
 </script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-"""Scenario generation business logic: topic filtering → prompt → LLM → persist."""
+"""Scenario generation business logic: one rule → prompt → LLM → persist."""
 import uuid
 
 from pydantic import ValidationError
@@ -6,10 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import Settings, get_settings
 from ..core.logging import get_logger
-from ..core.topics import ATTACK_TYPE_TOPICS
+from ..core.topics import ATTACK_TYPES, ATTACK_TYPE_TOPICS
+from ..models.document import SecurityRule
 from ..models.scenario import (
-    ATTACK_TYPES,
-    AttackType,
     BatchGenerateRequest,
     BatchGenerateResponse,
     GenerateScenarioRequest,
@@ -36,7 +35,11 @@ class ScenarioServiceError(Exception):
 
 
 class NoRulesFoundError(ScenarioServiceError):
-    """Raised when no rules match the attack type topics and department filter."""
+    """Raised when no rules match the requested attack types and department."""
+
+
+class RuleNotFoundError(ScenarioServiceError):
+    """Raised when a rule id is unknown or belongs to another tenant."""
 
 
 class DepartmentNotFoundError(ScenarioServiceError):
@@ -54,10 +57,10 @@ class ScenarioGenerationError(ScenarioServiceError):
 class ScenarioService:
     """Facade exposing scenario generation (single and batch) and CRUD.
 
-    Generation selects the tenant's structured security rules by SQL topic
-    filtering: rules whose topic belongs to the attack type's topics and to the
-    department's ``allowed_topics`` are handed to the LLM for a JSON scenario
-    (with one clarification retry). LLM calls go through a shared
+    Each scenario is generated from exactly one :class:`SecurityRule`: batch
+    generation produces one scenario per matching rule (whose topic is one of
+    the requested attack types and is allowed for the department), while single
+    generation takes an explicit rule id. LLM calls go through a shared
     :class:`SessionManager` so long batch runs stay within the context window.
     """
 
@@ -81,67 +84,28 @@ class ScenarioService:
         # Batch-level session memory. These accumulate across every scenario in
         # a batch (and across calls) and are passed to the SessionManager as the
         # anchor, so a context reset re-injects all already-used topics and
-        # titles for consistency. A per-scenario anchor (just the attack type)
-        # would carry no useful cross-scenario signal.
+        # titles for consistency.
         self._used_topics: list[str] = []
         self._generated_titles: list[str] = []
 
     async def generate_scenario(
         self, session: AsyncSession, request: GenerateScenarioRequest
     ) -> GenerateScenarioResponse:
-        """Select rules by topic + department, generate and persist a scenario."""
-        allowed_topics = await self._resolve_allowed_topics(
-            session, request.tenant_id, request.department
-        )
-        attack_topics = list(
-            ATTACK_TYPE_TOPICS.get(request.attack_type, (request.attack_type,))
-        )
+        """Generate a single scenario for the rule named by ``request.rule_id``."""
+        rule = await self.rule_repository.get(session, request.rule_id)
+        if rule is None or rule.tenant_id != request.tenant_id:
+            raise RuleNotFoundError(f"Rule not found: {request.rule_id!r}")
 
-        rules = await self.rule_repository.list_by_topics(
-            session, request.tenant_id, attack_topics
+        num_steps = self._resolve_num_steps(request.num_steps)
+        scenario = await self._generate_for_rule(
+            session, rule, request.tenant_id, request.department, num_steps
         )
         logger.info(
-            "Found %d rules for attack_type=%s tenant=%s",
-            len(rules),
-            request.attack_type,
-            request.tenant_id,
-        )
-
-        filtered = [rule for rule in rules if rule.topic in allowed_topics]
-        logger.info(
-            "Department filter removed %d of %d rules for department=%s",
-            len(rules) - len(filtered),
-            len(rules),
-            request.department,
-        )
-
-        if not filtered:
-            raise NoRulesFoundError(
-                f"No rules found for topic(s) {attack_topics!r} in department "
-                f"{request.department!r} (tenant {request.tenant_id!r})"
-            )
-
-        topics_used = sorted({rule.topic for rule in filtered})
-        logger.info(
-            "Passing %d rules to LLM (topics=%s)",
-            len(filtered),
-            ", ".join(topics_used),
-        )
-
-        context = build_scenario_context(filtered)
-        prompt = build_scenario_prompt(
-            context, request.attack_type, request.department
-        )
-        scenario = await self._generate_with_retry(prompt, request, topics_used)
-        await self.repository.create(session, scenario)
-        self._remember(scenario)
-
-        logger.info(
-            "Scenario generated: id=%s attack=%s tenant=%s department=%s",
+            "Scenario generated: id=%s rule=%s tenant=%s department=%s",
             scenario.id,
-            scenario.attack_type,
-            scenario.tenant_id,
-            scenario.department,
+            rule.id,
+            request.tenant_id,
+            request.department,
         )
         return GenerateScenarioResponse(
             scenario_id=scenario.id,
@@ -152,26 +116,34 @@ class ScenarioService:
     async def generate_all_scenarios(
         self, session: AsyncSession, request: BatchGenerateRequest
     ) -> BatchGenerateResponse:
-        """Generate one scenario per attack type, isolating per-type failures."""
+        """Generate one scenario per matching rule, isolating per-rule failures."""
+        allowed_topics = await self._resolve_allowed_topics(
+            session, request.tenant_id, request.department
+        )
         attack_types = list(request.attack_types or ATTACK_TYPES)
+        num_steps = self._resolve_num_steps(request.num_steps)
+
         generated: list[Scenario] = []
         skipped: list[str] = []
         errors: list[dict[str, str]] = []
 
         for attack_type in attack_types:
-            try:
-                # Isolate each attack type in its own savepoint so a failure in
-                # one does not poison the session for the remaining iterations.
-                async with session.begin_nested():
-                    response = await self.generate_scenario(
-                        session,
-                        GenerateScenarioRequest(
-                            tenant_id=request.tenant_id,
-                            attack_type=attack_type,
-                            department=request.department,
-                        ),
-                    )
-            except NoRulesFoundError:
+            attack_topics = list(
+                ATTACK_TYPE_TOPICS.get(attack_type, (attack_type,))
+            )
+            rules = await self.rule_repository.list_by_topics(
+                session, request.tenant_id, attack_topics
+            )
+            filtered = [rule for rule in rules if rule.topic in allowed_topics]
+            logger.info(
+                "Found %d rules for attack_type=%s, %d allowed by department=%s",
+                len(rules),
+                attack_type,
+                len(filtered),
+                request.department,
+            )
+
+            if not filtered:
                 skipped.append(attack_type)
                 logger.warning(
                     "No rules for attack_type=%s tenant=%s department=%s",
@@ -180,25 +152,42 @@ class ScenarioService:
                     request.department,
                 )
                 continue
-            except ScenarioGenerationError as exc:
-                errors.append({"attack_type": attack_type, "error": str(exc)})
-                logger.error(
-                    "Generation failed for attack_type=%s tenant=%s: %s",
-                    attack_type,
-                    request.tenant_id,
-                    exc,
-                )
-                continue
-            except Exception as exc:  # noqa: BLE001 - batch must not abort on one type
-                errors.append({"attack_type": attack_type, "error": str(exc)})
-                logger.exception(
-                    "Unexpected error for attack_type=%s tenant=%s",
-                    attack_type,
-                    request.tenant_id,
-                )
-                continue
-            else:
-                generated.append(response.scenario)
+
+            for rule in filtered:
+                try:
+                    # Isolate each rule in its own savepoint so a failure in one
+                    # does not poison the session for the remaining iterations.
+                    async with session.begin_nested():
+                        scenario = await self._generate_for_rule(
+                            session,
+                            rule,
+                            request.tenant_id,
+                            request.department,
+                            num_steps,
+                        )
+                except ScenarioGenerationError as exc:
+                    errors.append(
+                        {"attack_type": attack_type, "error": str(exc)}
+                    )
+                    logger.error(
+                        "Generation failed for rule=%s attack_type=%s: %s",
+                        rule.id,
+                        attack_type,
+                        exc,
+                    )
+                    continue
+                except Exception as exc:  # noqa: BLE001 - batch must not abort on one rule
+                    errors.append(
+                        {"attack_type": attack_type, "error": str(exc)}
+                    )
+                    logger.exception(
+                        "Unexpected error for rule=%s attack_type=%s",
+                        rule.id,
+                        attack_type,
+                    )
+                    continue
+                else:
+                    generated.append(scenario)
 
         return BatchGenerateResponse(
             generated=generated,
@@ -207,6 +196,31 @@ class ScenarioService:
             total_generated=len(generated),
             total_skipped=len(skipped),
         )
+
+    async def _generate_for_rule(
+        self,
+        session: AsyncSession,
+        rule: SecurityRule,
+        tenant_id: str,
+        department: str,
+        num_steps: int,
+    ) -> Scenario:
+        """Generate and persist a scenario from a single rule."""
+        if rule.topic not in ATTACK_TYPES:
+            raise ScenarioGenerationError(
+                f"Rule {rule.id!r} has non-attack topic {rule.topic!r}"
+            )
+
+        context = build_scenario_context([rule])
+        prompt = build_scenario_prompt(
+            context, rule.topic, department, num_steps
+        )
+        scenario = await self._generate_with_retry(
+            prompt, tenant_id, department, rule
+        )
+        await self.repository.create(session, scenario)
+        self._remember(scenario)
+        return scenario
 
     async def _resolve_allowed_topics(
         self, session: AsyncSession, tenant_id: str, department: str
@@ -231,6 +245,12 @@ class ScenarioService:
             )
         return stored.allowed_topics
 
+    def _resolve_num_steps(self, num_steps: int | None) -> int:
+        """Return the configured number of steps, falling back to settings."""
+        if num_steps is not None:
+            return num_steps
+        return self.settings.scenario_num_steps
+
     def _remember(self, scenario: Scenario) -> None:
         """Accumulate used topics and titles for the next session anchor."""
         for topic in scenario.topics_used:
@@ -242,8 +262,9 @@ class ScenarioService:
     async def _generate_with_retry(
         self,
         prompt: str,
-        request: GenerateScenarioRequest,
-        topics_used: list[str],
+        tenant_id: str,
+        department: str,
+        rule: SecurityRule,
     ) -> Scenario:
         # Batch-level anchor: already-used topics and titles, not the current
         # scenario's attack type alone.
@@ -252,7 +273,7 @@ class ScenarioService:
             prompt, system=SCENARIO_SYSTEM_PROMPT, anchor=anchor
         )
         try:
-            return self._scenario_from_raw(raw, request, topics_used)
+            return self._scenario_from_raw(raw, tenant_id, department, rule)
         except ValueError as first_error:
             logger.warning("Scenario JSON invalid, retrying once: %s", first_error)
             correction = (
@@ -265,7 +286,7 @@ class ScenarioService:
                 correction, system=SCENARIO_SYSTEM_PROMPT, anchor=anchor
             )
             try:
-                return self._scenario_from_raw(raw, request, topics_used)
+                return self._scenario_from_raw(raw, tenant_id, department, rule)
             except ValueError as second_error:
                 raise ScenarioGenerationError(
                     f"LLM returned invalid scenario JSON after retry: {second_error}"
@@ -274,8 +295,9 @@ class ScenarioService:
     def _scenario_from_raw(
         self,
         raw: str,
-        request: GenerateScenarioRequest,
-        topics_used: list[str],
+        tenant_id: str,
+        department: str,
+        rule: SecurityRule,
     ) -> Scenario:
         data = parse_llm_json_object(raw)
         fields = {
@@ -286,10 +308,11 @@ class ScenarioService:
         try:
             return Scenario(
                 id=str(uuid.uuid4()),
-                tenant_id=request.tenant_id,
-                attack_type=request.attack_type,
-                department=request.department,
-                topics_used=list(topics_used),
+                tenant_id=tenant_id,
+                attack_type=rule.topic,
+                department=department,
+                rule_id=rule.id,
+                topics_used=[rule.topic],
                 **fields,
             )
         except ValidationError as exc:
@@ -309,6 +332,11 @@ class ScenarioService:
         self, session: AsyncSession, tenant_id: str | None = None
     ) -> list[Scenario]:
         return await self.repository.list(session, tenant_id)
+
+    async def list_scenarios_by_rule(
+        self, session: AsyncSession, rule_id: str
+    ) -> list[Scenario]:
+        return await self.repository.list_by_rule(session, rule_id)
 
     async def delete_scenario(self, session: AsyncSession, scenario_id: str) -> None:
         if not await self.repository.delete(session, scenario_id):

@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # LLM rule structuring
     rule_structuring_batch_size: int = 5
 
+    # Scenario generation: default number of steps when the request omits it.
+    scenario_num_steps: int = 3
+
     # Chunking. Sizes are in characters (~4 characters == 1 token for English);
     # tune these to match the 500-1000 token / 100-200 token overlap guidance
     # for your language and model.

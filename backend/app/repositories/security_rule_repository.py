@@ -51,6 +51,24 @@ class SecurityRuleRepository:
         """Return every rule for a tenant."""
         return await self._list(session, tenant_id)
 
+    async def get(self, session: AsyncSession, rule_id: str) -> SecurityRule | None:
+        """Return a rule by id, or ``None`` when it does not exist."""
+        orm = await session.get(SecurityRuleORM, rule_id)
+        return self._to_rule(orm) if orm is not None else None
+
+    async def delete(self, session: AsyncSession, rule_id: str) -> bool:
+        """Delete a single rule; return ``False`` when the id is unknown.
+
+        Scenarios linked to the rule are removed by the database via the
+        ``scenarios.rule_id`` foreign key's ``ON DELETE CASCADE``.
+        """
+        orm = await session.get(SecurityRuleORM, rule_id)
+        if orm is None:
+            return False
+        await session.delete(orm)
+        await session.flush()
+        return True
+
     async def list_by_topics(
         self, session: AsyncSession, tenant_id: str, topics: list[str]
     ) -> list[SecurityRule]:

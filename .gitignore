@@ -55,6 +55,7 @@ history_tasks/
 logs/
 tmp/
 temp/
+BACKLOG.md
 
 # OS
 .DS_Store

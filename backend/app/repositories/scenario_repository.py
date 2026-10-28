@@ -25,6 +25,7 @@ class ScenarioRepository:
             steps=[step.model_dump() for step in scenario.steps],
             scoring=scenario.scoring.model_dump(),
             department=scenario.department,
+            rule_id=scenario.rule_id,
             topics_used=list(scenario.topics_used),
             status="generated",
         )
@@ -40,6 +41,7 @@ class ScenarioRepository:
             steps=[ScenarioStep.model_validate(step) for step in orm.steps],
             scoring=ScenarioScoring.model_validate(orm.scoring),
             department=orm.department or "default",
+            rule_id=orm.rule_id,
             topics_used=list(orm.topics_used or []),
             created_at=orm.created_at,
         )
@@ -62,6 +64,14 @@ class ScenarioRepository:
         statement = select(ScenarioORM)
         if tenant_id is not None:
             statement = statement.where(ScenarioORM.tenant_id == tenant_id)
+        result = await session.execute(statement)
+        return [self._to_scenario(orm) for orm in result.scalars()]
+
+    async def list_by_rule(
+        self, session: AsyncSession, rule_id: str
+    ) -> list[Scenario]:
+        """List every scenario generated from a specific rule."""
+        statement = select(ScenarioORM).where(ScenarioORM.rule_id == rule_id)
         result = await session.execute(statement)
         return [self._to_scenario(orm) for orm in result.scalars()]
 

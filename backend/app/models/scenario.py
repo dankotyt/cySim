@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ..core.config import DEFAULT_TENANT_ID
-from ..core.topics import ATTACK_TYPES, AttackType
+from ..core.topics import AttackType
 
 # The interaction channel of a single scenario step.
 ScenarioStepType = Literal[
@@ -32,17 +32,6 @@ class ScenarioAction(BaseModel):
     points: int
 
 
-class ScenarioStep(BaseModel):
-    """One decision point within a scenario."""
-
-    step_id: str
-    type: ScenarioStepType
-    content: str
-    actions: list[ScenarioAction]
-    feedback: str
-    correct_action: str
-
-
 class ScenarioContext(BaseModel):
     """Reference to the company rule the scenario is built around."""
 
@@ -66,19 +55,25 @@ class Scenario(BaseModel):
     title: str
     attack_type: AttackType
     context: ScenarioContext
-    steps: list[ScenarioStep]
+    step_type: ScenarioStepType
+    content: str
+    actions: list[ScenarioAction]
+    feedback: str
+    correct_action: str
     scoring: ScenarioScoring
     department: str = "default"
+    rule_id: str | None = None
     topics_used: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utcnow)
 
 
 class GenerateScenarioRequest(BaseModel):
-    """Request body for scenario generation."""
+    """Request body for generating a scenario for a single rule."""
 
     tenant_id: str = DEFAULT_TENANT_ID
-    attack_type: AttackType
+    rule_id: str
     department: str = "default"
+    num_steps: int | None = Field(None, ge=1, le=10)
 
 
 class GenerateScenarioResponse(BaseModel):
@@ -90,11 +85,12 @@ class GenerateScenarioResponse(BaseModel):
 
 
 class BatchGenerateRequest(BaseModel):
-    """Request body for generating scenarios for a set of attack types."""
+    """Request body for generating one scenario per matching rule."""
 
     tenant_id: str
     department: str = "default"
     attack_types: list[AttackType] | None = None
+    num_steps: int | None = Field(None, ge=1, le=10)
 
 
 class BatchGenerateResponse(BaseModel):
