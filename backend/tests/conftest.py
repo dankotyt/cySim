@@ -8,19 +8,9 @@ from app.models import db_models  # noqa: F401 — register ORM models on Base
 
 
 @pytest.fixture
-def settings(tmp_path) -> Settings:
-    """A Settings instance scoped to a temporary directory."""
-    return Settings(
-        storage_dir=tmp_path / "uploads",
-        chroma_persist_dir=tmp_path / "chroma",
-        quarantine_dir=tmp_path / "quarantine",
-        embedding_provider="ollama",
-        chunk_size=800,
-        chunk_overlap=100,
-        min_document_chars=10,
-        min_document_chunks=1,
-        relevance_threshold=0.0,
-    )
+def settings() -> Settings:
+    """A Settings instance with defaults."""
+    return Settings()
 
 
 @pytest.fixture

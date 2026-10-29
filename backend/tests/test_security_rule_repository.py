@@ -8,11 +8,9 @@ from app.repositories.security_rule_repository import SecurityRuleRepository
 
 def _rule(**overrides):
     defaults = dict(
-        title="Правило",
         description="Не передавать пароли.",
-        section="Пароли",
         topic="phishing",
-        linked_docs=[],
+        audience=["general"],
         document_id="doc-1",
     )
     defaults.update(overrides)
@@ -23,14 +21,14 @@ async def test_create_many_and_list_by_tenant(db_session):
     repo = SecurityRuleRepository()
     rules = [
         _rule(topic="phishing", description="Не передавать пароли."),
-        _rule(topic="vishing", description="Не называть код из SMS."),
+        _rule(topic="internet", description="Не переходить по подозрительным ссылкам."),
     ]
     await repo.create_many(db_session, "acme", rules)
 
     result = await repo.list_by_tenant(db_session, "acme")
 
     assert len(result) == 2
-    assert {rule.topic for rule in result} == {"phishing", "vishing"}
+    assert {rule.topic for rule in result} == {"phishing", "internet"}
     assert all(rule.id for rule in result)
     assert all(rule.document_id == "doc-1" for rule in result)
 
@@ -42,11 +40,9 @@ async def test_create_many_persists_full_rule(db_session):
         "acme",
         [
             _rule(
-                title="Сложные пароли",
                 description="Пароль должен содержать 12 символов.",
-                section="Управление доступом",
-                topic="passwords",
-                linked_docs=["Регламент доступа"],
+                topic="password",
+                audience=["it", "security"],
                 document_id="doc-1",
             )
         ],
@@ -55,24 +51,23 @@ async def test_create_many_persists_full_rule(db_session):
     rows = (await db_session.execute(select(SecurityRuleORM))).scalars().all()
 
     assert len(rows) == 1
-    assert rows[0].section == "Управление доступом"
-    assert rows[0].topic == "passwords"
-    assert rows[0].linked_docs == ["Регламент доступа"]
+    assert rows[0].topic == "password"
+    assert rows[0].audience == ["it", "security"]
     assert rows[0].document_id == "doc-1"
 
 
-async def test_list_by_topic(db_session):
+async def test_list_by_topics(db_session):
     repo = SecurityRuleRepository()
     await repo.create_many(
         db_session,
         "acme",
         [
             _rule(topic="phishing", description="Не открывать вложения."),
-            _rule(topic="vishing", description="Не называть код из SMS."),
+            _rule(topic="internet", description="Не переходить по подозрительным ссылкам."),
         ],
     )
 
-    phishing = await repo.list_by_topic(db_session, "acme", "phishing")
+    phishing = await repo.list_by_topics(db_session, "acme", ["phishing"])
 
     assert len(phishing) == 1
     assert phishing[0].topic == "phishing"
@@ -84,17 +79,15 @@ async def test_list_by_filters(db_session):
         db_session,
         "acme",
         [
-            _rule(topic="phishing", section="Электронная почта", description="Не открывать вложения."),
-            _rule(topic="phishing", section="Сеть", description="Не переходить по ссылкам."),
+            _rule(topic="phishing", description="Не открывать вложения."),
+            _rule(topic="internet", description="Не переходить по подозрительным ссылкам."),
         ],
     )
 
-    filtered = await repo.list_by_filters(
-        db_session, "acme", topic="phishing", section="Сеть"
-    )
+    filtered = await repo.list_by_filters(db_session, "acme", topic="phishing")
 
     assert len(filtered) == 1
-    assert filtered[0].section == "Сеть"
+    assert filtered[0].topic == "phishing"
 
 
 async def test_delete_by_tenant(db_session):
