@@ -1,12 +1,13 @@
-"""Document ingestion, parsing, chunking, storage and retrieval."""
+"""Document ingestion: parse, chunk, extract rules via LoRA, store metadata.
+
+The document source content is processed in-memory and discarded: only its
+metadata (and the extracted rules) are persisted.
+"""
 import asyncio
-import shutil
-import time
+import hashlib
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import Settings, get_settings
@@ -16,24 +17,15 @@ from ..models.document import (
     Document,
     DocumentStatus,
     DocumentType,
-    MetricsResponse,
-    MissingReference,
-    ProcessResponse,
-    SearchResponse,
-    SearchResult,
-    SecurityRule,
     UploadResponse,
 )
-from ..models.db_models import DocumentORM
-from ..repositories.document_chunk_repository import DocumentChunkRepository
 from ..repositories.document_repository import DocumentRepository
-from ..repositories.missing_reference_repository import MissingReferenceRepository
 from ..repositories.security_rule_repository import SecurityRuleRepository
 from ..utils.chunking import chunk_document
 from ..utils.parsers import ParsedDocument, parse_file
 from .document_validator import DocumentValidationError, DocumentValidator
-from .llm_provider import get_llm_provider
-from .rule_structurer import RuleStructurer
+from .rule_structuring import LoRARuleStructurer
+from .rule_structuring.provider import LoRAProvider
 
 logger = get_logger(__name__)
 
@@ -51,54 +43,34 @@ class ProcessingError(DocumentServiceError):
 
 
 class DocumentService:
-    """Facade exposing the full document analysis pipeline.
-
-    The service owns ingestion, parsing, chunking, chunk persistence, rule
-    structuring and chunk retrieval. Chunks are stored in Postgres
-    (``document_chunks``) and searched via ``pg_trgm`` similarity; there is no
-    external vector store.
-
-    Database access is asynchronous; each method receives an
-    :class:`AsyncSession` (injected by FastAPI through ``Depends(get_db)``).
-    """
+    """Ingest documents, extract rules via a LoRA adapter, store metadata only."""
 
     def __init__(
         self,
         settings: Settings | None = None,
         validator: DocumentValidator | None = None,
         security_rule_repository: SecurityRuleRepository | None = None,
-        rule_structurer: RuleStructurer | None = None,
-        missing_reference_repository: MissingReferenceRepository | None = None,
-        document_chunk_repository: DocumentChunkRepository | None = None,
+        rule_structurer: LoRARuleStructurer | None = None,
     ) -> None:
         self.settings = settings or get_settings()
-        self.settings.ensure_directories()
-
         self.repository = DocumentRepository()
         self.security_rule_repository = (
             security_rule_repository or SecurityRuleRepository()
         )
-        self.missing_reference_repository = (
-            missing_reference_repository or MissingReferenceRepository()
-        )
-        self.document_chunk_repository = (
-            document_chunk_repository or DocumentChunkRepository()
-        )
         self.validator = validator or DocumentValidator(self.settings)
-        self.rule_structurer = rule_structurer or RuleStructurer(
-            llm_provider=get_llm_provider(self.settings),
-            batch_size=self.settings.rule_structuring_batch_size,
-            num_ctx=self.settings.llm_num_ctx,
+        self.rule_structurer = rule_structurer or self._build_structurer()
+
+    def _build_structurer(self) -> LoRARuleStructurer:
+        """Build the default LoRA-backed structurer from settings."""
+        provider = LoRAProvider(
+            base_model_path=self.settings.lora_base_model_path,
+            adapter_path=self.settings.lora_adapter_path,
+            max_new_tokens=self.settings.lora_max_new_tokens,
+            max_input_length=self.settings.lora_max_input_length,
+            load_in_4bit=self.settings.lora_load_in_4bit,
+            device_map=self.settings.lora_device_map,
         )
-
-        self._metrics = {
-            "processed": 0,
-            "failed": 0,
-            "total_chunks": 0,
-            "total_time": 0.0,
-        }
-
-    # -- helpers -----------------------------------------------------------
+        return LoRARuleStructurer(llm_provider=provider)
 
     @staticmethod
     def _document_type(extension: str) -> DocumentType:
@@ -109,53 +81,10 @@ class DocumentService:
         }
         return mapping[extension]
 
-    async def _require_document(
-        self, session: AsyncSession, document_id: str, tenant_id: str
-    ) -> Document:
-        document = await self.repository.get(session, document_id)
-        if document is None or document.tenant_id != tenant_id:
-            raise DocumentNotFoundError(f"Document not found: {document_id}")
-        return document
-
-    def _move_to_quarantine(self, document: Document) -> None:
-        """Move the original file into the quarantine directory."""
-        source = Path(document.file_path)
-        if not source.exists():
-            return
-        target_dir = self.settings.quarantine_dir / document.tenant_id
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target = target_dir / f"{document.id}_{document.filename}"
-        shutil.move(str(source), str(target))
-        document.file_path = str(target)
-
-    async def _mark_failed(
-        self,
-        session: AsyncSession,
-        document: Document,
-        error: Exception,
-        *,
-        quarantine: bool = False,
-    ) -> None:
-        """Persist the ``FAILED`` state and (optionally) quarantine the file.
-
-        The failure state is committed explicitly so it survives the exception
-        that the service re-raises afterwards (the request dependency rolls back
-        on error).
-        """
-        if quarantine:
-            self._move_to_quarantine(document)
-        document.status = DocumentStatus.FAILED
-        document.error = str(error)
-        await self.repository.update(session, document)
-        await session.commit()
-        self._metrics["failed"] += 1
-
-    # -- pipeline ----------------------------------------------------------
-
     async def upload_document(
         self, session: AsyncSession, tenant_id: str, filename: str, content: bytes
     ) -> UploadResponse:
-        """Validate, store and register an uploaded document."""
+        """Parse, validate, chunk and structure a document, storing only metadata."""
         extension = Path(filename).suffix.lower()
         if extension not in self.settings.allowed_extensions:
             raise ValueError(
@@ -169,126 +98,80 @@ class DocumentService:
                 f"File exceeds the maximum size of {self.settings.max_upload_size_mb} MB"
             )
 
+        content_hash = hashlib.sha256(content).hexdigest()
         document_id = str(uuid.uuid4())
-        target_dir = self.settings.storage_dir / tenant_id / document_id
-        target_dir.mkdir(parents=True, exist_ok=True)
-        file_path = target_dir / filename
-        await asyncio.to_thread(file_path.write_bytes, content)
+
+        parsed: ParsedDocument = await asyncio.to_thread(
+            parse_file, filename, content
+        )
+        document_type = self._document_type(extension)
+        chunks = await asyncio.to_thread(
+            chunk_document,
+            parsed,
+            document_id,
+            filename,
+            document_type,
+            self.settings,
+        )
+        if not chunks:
+            raise ProcessingError(
+                f"No extractable text found in document {document_id}"
+            )
+
+        try:
+            self.validator.validate(filename, content, parsed, chunks)
+        except DocumentValidationError as exc:
+            await self.repository.create(
+                session,
+                Document(
+                    id=document_id,
+                    tenant_id=tenant_id,
+                    name=filename,
+                    content_hash=content_hash,
+                    size_bytes=len(content),
+                    status=DocumentStatus.FAILED,
+                ),
+            )
+            logger.warning(
+                "Document validation failed: id=%s error=%s", document_id, exc
+            )
+            raise ProcessingError(str(exc)) from exc
+
+        result = await self.rule_structurer.structure(
+            chunks, tenant_id, document_id
+        )
+        await self.security_rule_repository.create_many(
+            session, tenant_id, result.rules
+        )
 
         document = Document(
             id=document_id,
             tenant_id=tenant_id,
-            filename=filename,
-            document_type=self._document_type(extension),
-            status=DocumentStatus.UPLOADED,
-            file_path=str(file_path),
+            name=filename,
+            content_hash=content_hash,
             size_bytes=len(content),
+            rule_count=len(result.rules),
+            status=DocumentStatus.PROCESSED,
         )
         await self.repository.create(session, document)
-        logger.info("Document uploaded: id=%s filename=%s tenant=%s", document_id, filename, tenant_id)
-        return UploadResponse(document_id=document_id, filename=filename, status=document.status)
 
-    async def process_document(
+        logger.info(
+            "Document processed: id=%s rules=%d tenant=%s",
+            document_id,
+            len(result.rules),
+            tenant_id,
+        )
+        return UploadResponse(
+            document_id=document_id, filename=filename, status=document.status
+        )
+
+    async def _require_document(
         self, session: AsyncSession, document_id: str, tenant_id: str
-    ) -> ProcessResponse:
-        """Parse, validate, chunk, store and structure a previously uploaded document."""
-        document = await self._require_document(session, document_id, tenant_id)
-        document.status = DocumentStatus.PROCESSING
-        document.error = None
-        await self.repository.update(session, document)
-
-        started = time.perf_counter()
-        failed_marked = False
-        try:
-            content = await asyncio.to_thread(
-                Path(document.file_path).read_bytes
-            )
-            parsed: ParsedDocument = await asyncio.to_thread(
-                parse_file, document.filename, content
-            )
-            chunks = await asyncio.to_thread(
-                chunk_document,
-                parsed,
-                document.id,
-                document.filename,
-                document.document_type,
-                self.settings,
-            )
-            if not chunks:
-                raise ProcessingError(f"No extractable text found in document {document_id}")
-
-            try:
-                self.validator.validate(document.filename, content, parsed, chunks)
-            except DocumentValidationError as exc:
-                await self._mark_failed(session, document, exc, quarantine=True)
-                failed_marked = True
-                logger.warning("Document validation failed: id=%s error=%s", document_id, exc)
-                raise ProcessingError(str(exc)) from exc
-
-            # Idempotency on reprocessing: drop this document's previously
-            # derived chunks, structured rules and missing references before
-            # re-deriving them.
-            await self.document_chunk_repository.delete_by_document(
-                session, document.id
-            )
-            await self.security_rule_repository.delete_by_document(
-                session, document.id
-            )
-            await self.missing_reference_repository.delete_by_document(
-                session, document.id
-            )
-
-            await self.document_chunk_repository.create_many(
-                session, tenant_id, chunks
-            )
-
-            result = await self.rule_structurer.structure(
-                chunks, tenant_id, document.id
-            )
-            await self.security_rule_repository.create_many(
-                session, tenant_id, result.rules
-            )
-            await self._record_missing_references(
-                session, tenant_id, document.id, result.rules
-            )
-            logger.info(
-                "Structured %d rules for tenant=%s document_id=%s "
-                "(failed_batches=%d, dropped_validation=%d, dropped_dedup=%d)",
-                len(result.rules),
-                tenant_id,
-                document.id,
-                len(result.failed_batches),
-                result.dropped_by_validation,
-                result.dropped_by_dedup,
-            )
-
-            document.page_count = len(parsed.pages)
-            document.chunk_count = len(chunks)
-            document.status = DocumentStatus.PROCESSED
-            document.processed_at = datetime.now(timezone.utc)
-            await self.repository.update(session, document)
-
-            self._metrics["processed"] += 1
-            self._metrics["total_chunks"] += len(chunks)
-            logger.info("Document processed: id=%s chunks=%d", document_id, len(chunks))
-
-            return ProcessResponse(
-                document_id=document_id,
-                status=document.status,
-                chunks_created=len(chunks),
-                pages_parsed=len(parsed.pages),
-            )
-        except Exception as exc:
-            if not failed_marked:
-                await self._mark_failed(session, document, exc)
-            logger.exception("Document processing failed: id=%s", document_id)
-            if isinstance(exc, DocumentServiceError):
-                raise
-            raise ProcessingError(f"Processing failed for {document_id}: {exc}") from exc
-        finally:
-            self._metrics["total_time"] += time.perf_counter() - started
-
-    # -- retrieval ---------------------------------------------------------
+    ) -> Document:
+        document = await self.repository.get(session, document_id)
+        if document is None or document.tenant_id != tenant_id:
+            raise DocumentNotFoundError(f"Document not found: {document_id}")
+        return document
 
     async def get_document(
         self, session: AsyncSession, document_id: str, tenant_id: str
@@ -296,152 +179,14 @@ class DocumentService:
         """Return metadata for a single document."""
         return await self._require_document(session, document_id, tenant_id)
 
-    async def search(
-        self,
-        query: str,
-        tenant_id: str,
-        top_k: int | None = 5,
-        filename: str | None = None,
-        document_type: DocumentType | None = None,
-        document_id: str | None = None,
-        min_score: float | None = None,
-    ) -> SearchResponse:
-        """Run full-text similarity search over a tenant's stored chunks.
-
-        Chunks whose ``pg_trgm`` similarity score falls below ``min_score`` (or
-        the configured ``settings.min_search_score`` when ``min_score`` is
-        ``None``) are dropped. When nothing passes the threshold, an empty result
-        set with an explanatory ``message`` is returned.
-
-        When ``top_k`` is ``None``, every matching chunk is considered.
-        """
-        threshold = min_score if min_score is not None else self.settings.min_search_score
-        rows = await self.document_chunk_repository.search(
-            session,
-            tenant_id,
-            query,
-            top_k=top_k,
-            filename=filename,
-            document_type=document_type.value if document_type is not None else None,
-            document_id=document_id,
-            min_score=threshold,
-        )
-
-        results: list[SearchResult] = [
-            SearchResult(
-                document_id=chunk.document_id,
-                text=chunk.text,
-                source=chunk.source,
-                page=chunk.page,
-                score=round(score, 6),
-            )
-            for chunk, score in rows
-        ]
-
-        if not results:
-            return SearchResponse(
-                query=query,
-                results=[],
-                message="Релевантных правил не найдено. Уточните запрос.",
-            )
-        return SearchResponse(query=query, results=results, message="Success")
-
     async def delete_document(
         self, session: AsyncSession, document_id: str, tenant_id: str
     ) -> DeleteResponse:
-        """Delete a document and all of its derived records."""
-        document = await self._require_document(session, document_id, tenant_id)
-
-        file_path = Path(document.file_path)
-        if file_path.exists():
-            file_path.unlink()
-        try:  # best-effort cleanup of the now-empty per-document directory
-            file_path.parent.rmdir()
-        except OSError:
-            pass
-
+        """Delete a document's metadata; its rules are removed via FK cascade."""
+        await self._require_document(session, document_id, tenant_id)
         await self.repository.delete(session, document_id)
         logger.info("Document deleted: id=%s tenant=%s", document_id, tenant_id)
         return DeleteResponse(document_id=document_id, deleted=True)
-
-    async def list_missing_references(
-        self, session: AsyncSession, tenant_id: str
-    ) -> list[MissingReference]:
-        """Return every missing internal-document reference for a tenant."""
-        return await self.missing_reference_repository.list_by_tenant(
-            session, tenant_id
-        )
-
-    async def clear_missing_references(
-        self, session: AsyncSession, tenant_id: str
-    ) -> int:
-        """Delete every missing reference for a tenant and return the count."""
-        return await self.missing_reference_repository.delete_by_tenant(
-            session, tenant_id
-        )
-
-    async def _existing_filenames(
-        self, session: AsyncSession, tenant_id: str, filenames: list[str]
-    ) -> set[str]:
-        """Return the subset of ``filenames`` already present for a tenant."""
-        if not filenames:
-            return set()
-        statement = select(DocumentORM.filename).where(
-            DocumentORM.tenant_id == tenant_id,
-            DocumentORM.filename.in_(filenames),
-        )
-        result = await session.execute(statement)
-        return set(result.scalars())
-
-    async def _record_missing_references(
-        self,
-        session: AsyncSession,
-        tenant_id: str,
-        document_id: str,
-        rules: list[SecurityRule],
-    ) -> None:
-        """Record and log internal documents referenced by rules but not uploaded."""
-        # Deduplicate by reference, keeping the first section that mentions it.
-        references: dict[str, str] = {}
-        for rule in rules:
-            for reference in rule.linked_docs:
-                reference = reference.strip()
-                if reference and reference not in references:
-                    references[reference] = rule.section
-        if not references:
-            return
-
-        existing = await self._existing_filenames(
-            session, tenant_id, list(references)
-        )
-        missing = [
-            (reference, section)
-            for reference, section in references.items()
-            if reference not in existing
-        ]
-        if not missing:
-            return
-
-        await self.missing_reference_repository.create_many(
-            session, tenant_id, document_id, missing
-        )
-        for reference, _ in missing:
-            logger.warning(
-                "Не найден документ, упоминаемый в правиле: %s. "
-                "Загрузите его для полного анализа.",
-                reference,
-            )
-
-    def get_metrics(self) -> MetricsResponse:
-        """Return aggregated processing metrics."""
-        attempts = self._metrics["processed"] + self._metrics["failed"]
-        average = self._metrics["total_time"] / attempts if attempts else 0.0
-        return MetricsResponse(
-            documents_processed=self._metrics["processed"],
-            documents_failed=self._metrics["failed"],
-            total_chunks=self._metrics["total_chunks"],
-            average_processing_seconds=round(average, 4),
-        )
 
 
 _service: DocumentService | None = None

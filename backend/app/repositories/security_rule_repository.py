@@ -15,11 +15,9 @@ class SecurityRuleRepository:
             id=rule.id,
             tenant_id=tenant_id,
             document_id=rule.document_id,
-            title=rule.title,
             description=rule.description,
-            section=rule.section,
             topic=rule.topic,
-            linked_docs=list(rule.linked_docs),
+            audience=list(rule.audience),
             created_at=rule.created_at,
         )
 
@@ -27,11 +25,9 @@ class SecurityRuleRepository:
     def _to_rule(orm: SecurityRuleORM) -> SecurityRule:
         return SecurityRule(
             id=orm.id,
-            title=orm.title,
             description=orm.description,
-            section=orm.section,
             topic=orm.topic,
-            linked_docs=list(orm.linked_docs or []),
+            audience=list(orm.audience or []),
             document_id=orm.document_id,
             created_at=orm.created_at,
         )
@@ -87,25 +83,21 @@ class SecurityRuleRepository:
         session: AsyncSession,
         tenant_id: str,
         topic: str | None = None,
-        section: str | None = None,
     ) -> list[SecurityRule]:
-        """Return every rule for a tenant, optionally filtered by topic/section."""
-        return await self._list(session, tenant_id, topic=topic, section=section)
+        """Return every rule for a tenant, optionally filtered by topic."""
+        return await self._list(session, tenant_id, topic=topic)
 
     async def _list(
         self,
         session: AsyncSession,
         tenant_id: str,
         topic: str | None = None,
-        section: str | None = None,
     ) -> list[SecurityRule]:
         statement = select(SecurityRuleORM).where(
             SecurityRuleORM.tenant_id == tenant_id
         )
         if topic is not None:
             statement = statement.where(SecurityRuleORM.topic == topic)
-        if section is not None:
-            statement = statement.where(SecurityRuleORM.section == section)
         result = await session.execute(statement)
         return [self._to_rule(orm) for orm in result.scalars()]
 

@@ -37,7 +37,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """Build and configure the FastAPI application."""
     settings = settings or get_settings()
     configure_logging(settings.log_level)
-    settings.ensure_directories()
 
     app = FastAPI(
         title=settings.app_name,

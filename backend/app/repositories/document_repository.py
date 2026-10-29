@@ -3,16 +3,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.db_models import DocumentORM
-from ..models.document import Document, DocumentStatus, DocumentType
+from ..models.document import Document, DocumentStatus
 
 
 class DocumentRepository:
     """Async repository translating between ORM rows and Pydantic DTOs.
 
-    The repository is deliberately stateless: callers pass an
-    :class:`AsyncSession` (typically obtained from the ``get_db`` FastAPI
-    dependency) to every method. Transaction boundaries are owned by the
-    caller, not the repository.
+    Only document metadata is persisted; the source content is never stored.
     """
 
     @staticmethod
@@ -21,16 +18,12 @@ class DocumentRepository:
         return DocumentORM(
             id=document.id,
             tenant_id=document.tenant_id,
-            filename=document.filename,
-            document_type=document.document_type.value,
-            status=document.status.value,
-            file_path=document.file_path,
+            name=document.name,
+            content_hash=document.content_hash,
             size_bytes=document.size_bytes,
-            page_count=document.page_count,
-            chunk_count=document.chunk_count,
-            error=document.error,
+            rule_count=document.rule_count,
+            status=document.status.value,
             created_at=document.created_at,
-            processed_at=document.processed_at,
         )
 
     @staticmethod
@@ -39,16 +32,12 @@ class DocumentRepository:
         return Document(
             id=orm.id,
             tenant_id=orm.tenant_id,
-            filename=orm.filename,
-            document_type=DocumentType(orm.document_type),
-            status=DocumentStatus(orm.status),
-            file_path=orm.file_path,
+            name=orm.name,
+            content_hash=orm.content_hash,
             size_bytes=orm.size_bytes,
-            page_count=orm.page_count,
-            chunk_count=orm.chunk_count,
-            error=orm.error,
+            rule_count=orm.rule_count,
+            status=DocumentStatus(orm.status),
             created_at=orm.created_at,
-            processed_at=orm.processed_at,
         )
 
     async def create(self, session: AsyncSession, document: Document) -> Document:
@@ -73,16 +62,12 @@ class DocumentRepository:
             return None
         updated = self._to_orm(document)
         orm.tenant_id = updated.tenant_id
-        orm.filename = updated.filename
-        orm.document_type = updated.document_type
-        orm.status = updated.status
-        orm.file_path = updated.file_path
+        orm.name = updated.name
+        orm.content_hash = updated.content_hash
         orm.size_bytes = updated.size_bytes
-        orm.page_count = updated.page_count
-        orm.chunk_count = updated.chunk_count
-        orm.error = updated.error
+        orm.rule_count = updated.rule_count
+        orm.status = updated.status
         orm.created_at = updated.created_at
-        orm.processed_at = updated.processed_at
         await session.flush()
         return document
 

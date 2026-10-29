@@ -15,7 +15,7 @@ def _utcnow() -> datetime:
 
 
 class DocumentStatus(str, Enum):
-    """Lifecycle state of an uploaded document."""
+    """Lifecycle state of an ingested document."""
 
     UPLOADED = "uploaded"
     PROCESSING = "processing"
@@ -32,20 +32,20 @@ class DocumentType(str, Enum):
 
 
 class Document(BaseModel):
-    """Metadata record describing a stored document."""
+    """Metadata record describing an ingested document.
+
+    Only metadata is stored; the source content and its chunks are processed
+    in-memory and discarded, never persisted.
+    """
 
     id: str
     tenant_id: str
-    filename: str
-    document_type: DocumentType
-    status: DocumentStatus = DocumentStatus.UPLOADED
-    file_path: str
+    name: str
+    content_hash: str
     size_bytes: int = 0
-    page_count: int = 0
-    chunk_count: int = 0
-    error: str | None = None
+    rule_count: int = 0
+    status: DocumentStatus = DocumentStatus.UPLOADED
     created_at: datetime = Field(default_factory=_utcnow)
-    processed_at: datetime | None = None
 
 
 class UploadResponse(BaseModel):
@@ -116,11 +116,10 @@ class SecurityRule(BaseModel):
     """A structured security rule produced by LLM structuring of document chunks."""
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    title: str
     description: str
-    section: str
     topic: str
-    linked_docs: list[str] = Field(default_factory=list)
+    audience: list[str] = Field(default_factory=list)
+    document_id: str
     created_at: datetime = Field(default_factory=_utcnow)
 
     @field_validator("topic")
