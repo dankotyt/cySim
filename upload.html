@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>CyberSim — загрузка документов</title>
+    <title>CyberSim — документы и сценарии</title>
     <style>
         * {
             box-sizing: border-box;
@@ -50,7 +50,7 @@
             font-size: 14px;
         }
 
-        input[type="text"], input[type="file"], textarea {
+        input[type="text"], input[type="file"] {
             width: 100%;
             padding: 10px;
             border: 1px solid #d0d7de;
@@ -96,10 +96,6 @@
             max-height: 400px;
         }
 
-        .status-ok {
-            color: #27ae60;
-        }
-
         .status-err {
             color: #e74c3c;
         }
@@ -116,8 +112,8 @@
     </style>
 </head>
 <body>
-<h1>🛡️ CyberSim — загрузка документов</h1>
-<p class="subtitle">Загрузка, обработка и поиск по документам ИБ</p>
+<h1>🛡️ CyberSim — документы и сценарии</h1>
+<p class="subtitle">Загрузка документов, извлечение правил и генерация сценариев</p>
 
 <!-- 1. ЗАГРУЗКА -->
 <div class="card">
@@ -126,47 +122,13 @@
     <input type="file" id="fileInput" accept=".pdf,.docx,.txt" multiple>
     <label for="tenantId">Tenant ID:</label>
     <input type="text" id="tenantId" value="test">
-    <button onclick="uploadFile()">Загрузить</button>
+    <button onclick="uploadFile()">Загрузить и извлечь правила</button>
     <pre id="uploadResult">Результат появится здесь...</pre>
 </div>
 
-<!-- 2. ОБРАБОТКА -->
+<!-- 2. ПРАВИЛА -->
 <div class="card">
-    <h2>2. Обработать документ</h2>
-    <label for="processDocId">Document ID (из шага 1):</label>
-    <input type="text" id="processDocId" placeholder="UUID из ответа загрузки">
-    <button onclick="processDocument()">Обработать</button>
-    <pre id="processResult">Результат появится здесь...</pre>
-</div>
-
-<!-- 3. ПОИСК -->
-<div class="card">
-    <h2>3. Поиск по документам</h2>
-    <div class="row">
-        <div>
-            <label for="searchQuery">Запрос:</label>
-            <input type="text" id="searchQuery" value="пароли">
-        </div>
-        <div>
-            <label for="searchTenant">Tenant ID:</label>
-            <input type="text" id="searchTenant" value="test">
-        </div>
-    </div>
-    <button onclick="searchDocuments()">Искать</button>
-    <pre id="searchResult">Результат появится здесь...</pre>
-</div>
-
-<!-- 4. СПИСОК ДОКУМЕНТОВ -->
-<div class="card">
-    <h2>4. Проверка состояния</h2>
-    <button onclick="checkHealth()">Проверить /health</button>
-    <button onclick="listDocuments()" style="margin-left:8px;">Список документов</button>
-    <pre id="healthResult">Результат появится здесь...</pre>
-</div>
-
-<!-- 5. ПРАВИЛА -->
-<div class="card">
-    <h2>5. Правила</h2>
+    <h2>2. Правила</h2>
     <label for="rulesTenantId">Tenant ID:</label>
     <input type="text" id="rulesTenantId" value="test">
     <button onclick="loadRules()">Список правил</button>
@@ -175,9 +137,9 @@
     </div>
 </div>
 
-<!-- 6. ГЕНЕРАЦИЯ СЦЕНАРИЕВ -->
+<!-- 3. ГЕНЕРАЦИЯ СЦЕНАРИЕВ -->
 <div class="card">
-    <h2>6. Генерация сценариев</h2>
+    <h2>3. Генерация сценариев</h2>
     <div class="row">
         <div>
             <label for="genTenantId">Tenant ID:</label>
@@ -187,13 +149,9 @@
             <label for="genDepartment">Отдел:</label>
             <input type="text" id="genDepartment" value="default">
         </div>
-        <div>
-            <label for="genSteps">Шагов (пусто — из .env, дефолт 3):</label>
-            <input type="text" id="genSteps" placeholder="3">
-        </div>
     </div>
     <label for="genRuleId">Rule ID (для одиночной генерации):</label>
-    <input type="text" id="genRuleId" placeholder="UUID правила из шага 5">
+    <input type="text" id="genRuleId" placeholder="UUID правила из шага 2">
     <button onclick="generateOne()">Сгенерировать один (по rule_id)</button>
     <button onclick="generateAll()" style="margin-left:8px; background:#27ae60;">Сгенерировать все типы</button>
     <button onclick="loadScenarios()" style="margin-left:8px; background:#7f8c8d;">Обновить список</button>
@@ -204,79 +162,42 @@
     <pre id="generateResult">Результат появится здесь...</pre>
 </div>
 
+<!-- 4. ПРОВЕРКА СОСТОЯНИЯ -->
+<div class="card">
+    <h2>4. Проверка состояния</h2>
+    <button onclick="checkHealth()">Проверить /health</button>
+    <pre id="healthResult">Результат появится здесь...</pre>
+</div>
+
 <script>
     const API = "http://localhost:8000";
 
     async function uploadFile() {
-    const fileInput = document.getElementById('fileInput');
-    const tenantId = document.getElementById('tenantId').value;
-    const out = document.getElementById('uploadResult');
-
-    if (!fileInput.files.length) {
-        out.innerHTML = '<span class="status-err">❌ Файлы не выбраны</span>';
-        return;
-    }
-
-    const formData = new FormData();
-    for (const file of fileInput.files) {
-        formData.append('files', file);
-    }
-    formData.append('tenant_id', tenantId);
-
-    out.textContent = `⏳ Загрузка ${fileInput.files.length} файл(ов)...`;
-
-    try {
-        const res = await fetch(`${API}/api/v1/documents/upload`, {
-            method: 'POST',
-            body: formData
-        });
-        const data = await res.json();
-        out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
-
-        // Бэкенд возвращает массив UploadResponse — берём первый
-        // document_id и подставляем в шаг 2.
-        const first = Array.isArray(data) ? data[0] : data;
-        if (res.ok && first && first.document_id) {
-            document.getElementById('processDocId').value = first.document_id;
-        }
-    } catch (e) {
-        out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
-    }
-}
-
-    async function processDocument() {
-        const docId = document.getElementById('processDocId').value;
+        const fileInput = document.getElementById('fileInput');
         const tenantId = document.getElementById('tenantId').value;
-        const out = document.getElementById('processResult');
+        const out = document.getElementById('uploadResult');
 
-        out.textContent = '⏳ Обработка... (может занять 10-30 секунд)';
+        if (!fileInput.files.length) {
+            out.innerHTML = '<span class="status-err">❌ Файлы не выбраны</span>';
+            return;
+        }
+
+        const formData = new FormData();
+        for (const file of fileInput.files) {
+            formData.append('files', file);
+        }
+        formData.append('tenant_id', tenantId);
+
+        out.textContent = `⏳ Загрузка и извлечение правил (может занять несколько минут)…`;
 
         try {
-            const res = await fetch(`${API}/api/v1/documents/process`, {
+            const res = await fetch(`${API}/api/v1/documents/upload`, {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({document_id: docId, tenant_id: tenantId})
+                body: formData
             });
             const data = await res.json();
             out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
-        } catch (e) {
-            out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
-        }
-    }
-
-    async function searchDocuments() {
-        const q = document.getElementById('searchQuery').value;
-        const tenantId = document.getElementById('searchTenant').value;
-        const out = document.getElementById('searchResult');
-
-        out.textContent = '⏳ Поиск...';
-
-        try {
-            const res = await fetch(
-                `${API}/api/v1/documents/search?q=${encodeURIComponent(q)}&tenant_id=${tenantId}`
-            );
-            const data = await res.json();
-            out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
+            if (res.ok) loadRules();
         } catch (e) {
             out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
         }
@@ -293,42 +214,20 @@
         }
     }
 
-    async function listDocuments() {
-        const out = document.getElementById('healthResult');
-        const tenantId = document.getElementById('tenantId').value;
-        try {
-            // Пробуем получить метаданные по последнему document_id
-            const docId = document.getElementById('processDocId').value;
-            if (!docId) {
-                out.textContent = 'Введите Document ID в шаге 2';
-                return;
-            }
-            const res = await fetch(
-                `${API}/api/v1/documents/${docId}?tenant_id=${tenantId}`
-            );
-            const data = await res.json();
-            out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
-        } catch (e) {
-            out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
-        }
-    }
-
     async function generateOne() {
         const tenantId = document.getElementById('genTenantId').value;
         const department = document.getElementById('genDepartment').value;
         const ruleId = document.getElementById('genRuleId').value.trim();
-        const stepsRaw = document.getElementById('genSteps').value.trim();
         const out = document.getElementById('generateResult');
 
         if (!ruleId) {
-            out.textContent = 'Введите Rule ID (из шага 5).';
+            out.textContent = 'Введите Rule ID (из шага 2).';
             return;
         }
 
         out.textContent = `⏳ Генерация сценария по правилу ${ruleId} для tenant=${tenantId}, отдел=${department}...\n(может занять 20–60 секунд)`;
 
         const body = {tenant_id: tenantId, rule_id: ruleId, department: department};
-        if (stepsRaw) body.num_steps = parseInt(stepsRaw, 10);
 
         try {
             const res = await fetch(`${API}/api/v1/scenarios/generate`, {
@@ -347,13 +246,11 @@
     async function generateAll() {
         const tenantId = document.getElementById('genTenantId').value;
         const department = document.getElementById('genDepartment').value;
-        const stepsRaw = document.getElementById('genSteps').value.trim();
         const out = document.getElementById('generateResult');
 
         out.textContent = `⏳ Массовая генерация для tenant=${tenantId}, отдел=${department}...\nЭто займёт несколько минут. Не закрывайте вкладку.`;
 
         const body = {tenant_id: tenantId, department: department};
-        if (stepsRaw) body.num_steps = parseInt(stepsRaw, 10);
 
         try {
             const res = await fetch(`${API}/api/v1/scenarios/generate-all`, {
@@ -373,7 +270,7 @@
                 if (data.errors && data.errors.length) {
                     summary += `❌ Ошибок: ${data.errors.length}\n`;
                     data.errors.forEach(e => {
-                        summary += `   ${e.attack_type}: ${e.error}\n`;
+                        summary += `   ${e.topic}: ${e.error}\n`;
                     });
                 }
                 summary += `\nПолный ответ:\n${JSON.stringify(data, null, 2)}`;
@@ -408,11 +305,12 @@
 
             list.innerHTML = `<p><strong>Правил у tenant «${tenantId}»: ${data.length}</strong></p>`;
             data.forEach(r => {
+                const audience = Array.isArray(r.audience) ? r.audience.join(', ') : '—';
                 const div = document.createElement('div');
                 div.style.cssText = 'border:1px solid #ddd; border-radius:6px; padding:8px; margin-bottom:6px; background:#fafbfc;';
                 div.innerHTML = `
-                    <strong>[${r.topic}]</strong> ${r.title}<br>
-                    <small style="color:#7f8c8d;">id=${r.id}</small>
+                    <strong>[${r.topic}]</strong> ${r.description}<br>
+                    <small style="color:#7f8c8d;">audience=${audience} · doc=${r.document_id ? r.document_id.substring(0, 8) + '…' : '—'}</small>
                     <button onclick="useRuleId('${r.id}')" style="padding:2px 8px; font-size:11px; margin-left:8px;">Использовать</button>
                 `;
                 list.appendChild(div);
@@ -454,7 +352,7 @@
                     <div>
                         <strong>${s.title || '(без названия)'}</strong><br>
                         <small style="color:#7f8c8d;">
-                            ${s.attack_type} · id=${s.id.substring(0, 8)}… · ${s.created_at || ''}
+                            ${s.topic} · id=${s.id.substring(0, 8)}… · ${s.created_at || ''}
                         </small>
                     </div>
                     <div>
