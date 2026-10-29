@@ -5,7 +5,6 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ..core.config import DEFAULT_TENANT_ID
-from ..core.topics import AttackType
 
 # The interaction channel of a single scenario step.
 ScenarioStepType = Literal[
@@ -32,14 +31,6 @@ class ScenarioAction(BaseModel):
     points: int
 
 
-class ScenarioContext(BaseModel):
-    """Reference to the company rule the scenario is built around."""
-
-    company_rule: str
-    source: str
-    page: int
-
-
 class ScenarioScoring(BaseModel):
     """Scoring thresholds for the scenario."""
 
@@ -52,18 +43,15 @@ class Scenario(BaseModel):
 
     id: str
     tenant_id: str
+    rule_id: str
     title: str
-    attack_type: AttackType
-    context: ScenarioContext
+    topic: str
     step_type: ScenarioStepType
     content: str
     actions: list[ScenarioAction]
     feedback: str
-    correct_action: str
     scoring: ScenarioScoring
     department: str = "default"
-    rule_id: str | None = None
-    topics_used: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utcnow)
 
 
@@ -73,7 +61,6 @@ class GenerateScenarioRequest(BaseModel):
     tenant_id: str = DEFAULT_TENANT_ID
     rule_id: str
     department: str = "default"
-    num_steps: int | None = Field(None, ge=1, le=10)
 
 
 class GenerateScenarioResponse(BaseModel):
@@ -89,8 +76,7 @@ class BatchGenerateRequest(BaseModel):
 
     tenant_id: str
     department: str = "default"
-    attack_types: list[AttackType] | None = None
-    num_steps: int | None = Field(None, ge=1, le=10)
+    topic: str | None = None
 
 
 class BatchGenerateResponse(BaseModel):

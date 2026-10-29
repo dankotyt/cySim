@@ -5,9 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.db_models import ScenarioORM
 from ..models.scenario import (
     Scenario,
-    ScenarioContext,
+    ScenarioAction,
     ScenarioScoring,
-    ScenarioStep,
 )
 
 
@@ -20,13 +19,14 @@ class ScenarioRepository:
             id=scenario.id,
             tenant_id=scenario.tenant_id,
             title=scenario.title,
-            attack_type=scenario.attack_type,
-            context=scenario.context.model_dump(),
-            steps=[step.model_dump() for step in scenario.steps],
+            topic=scenario.topic,
+            step_type=scenario.step_type,
+            content=scenario.content,
+            actions=[action.model_dump() for action in scenario.actions],
+            feedback=scenario.feedback,
             scoring=scenario.scoring.model_dump(),
             department=scenario.department,
             rule_id=scenario.rule_id,
-            topics_used=list(scenario.topics_used),
             status="generated",
         )
 
@@ -36,13 +36,14 @@ class ScenarioRepository:
             id=orm.id,
             tenant_id=orm.tenant_id,
             title=orm.title,
-            attack_type=orm.attack_type,
-            context=ScenarioContext.model_validate(orm.context),
-            steps=[ScenarioStep.model_validate(step) for step in orm.steps],
+            topic=orm.topic,
+            step_type=orm.step_type,
+            content=orm.content,
+            actions=[ScenarioAction.model_validate(action) for action in orm.actions],
+            feedback=orm.feedback,
             scoring=ScenarioScoring.model_validate(orm.scoring),
             department=orm.department or "default",
             rule_id=orm.rule_id,
-            topics_used=list(orm.topics_used or []),
             created_at=orm.created_at,
         )
 
