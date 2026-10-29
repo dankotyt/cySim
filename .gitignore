@@ -50,6 +50,9 @@ parsed_docs/
 history_tasks/
 ./backend/check_*
 
+# Веса LoRA-модели (Qwen2.5-7B-Instruct + адаптер)
+llms/
+
 # Логи и временное
 *.log
 logs/

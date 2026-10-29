@@ -75,16 +75,22 @@ services:
       LLM_TEMPERATURE: 0.7
       LLM_NUM_CTX: 8192
       LLM_TIMEOUT: 120
-      STORAGE_DIR: /app/data/uploads
-      QUARANTINE_DIR: /app/data/quarantine
-      MIN_DOCUMENT_CHARS: 100
-      MIN_DOCUMENT_CHUNKS: 1
+      # LoRA rule extraction (Qwen2.5-7B-Instruct + PEFT adapter, 4-bit)
+      LORA_BASE_MODEL_PATH: /app/models/Qwen2.5-7B-Instruct
+      LORA_ADAPTER_PATH: /app/models/lora-adapter
     ports:
       - "8000:8000"
     volumes:
       - .:/app
-      - uploads_data:/app/data/uploads
-      - quarantine_data:/app/data/quarantine
+      # Weights of the base model + LoRA adapter (bind to a local dir).
+      - ./models:/app/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     depends_on:
       postgres:
         condition: service_healthy
@@ -99,8 +105,6 @@ services:
 volumes:
   postgres_data:
   llm_ollama_data:
-  uploads_data:
-  quarantine_data:
 
 networks:
   cybersim-net:

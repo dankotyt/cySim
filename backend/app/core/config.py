@@ -1,10 +1,10 @@
 """Application configuration loaded from environment variables."""
 from functools import lru_cache
 from pathlib import Path
-
 from typing import Annotated, Literal
+
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict, NoDecode
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Default tenant id used as a fallback when a request does not specify one.
 DEFAULT_TENANT_ID = "default"
@@ -32,10 +32,6 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://cybersim:changeme@localhost:5432/cybersim"
 
-    # Storage
-    storage_dir: Path = Path("data/uploads")
-    quarantine_dir: Path = Path("data/quarantine")
-
     # LLM (scenario generation)
     llm_provider: Literal["ollama", "openai"] = "ollama"
     llm_model: str = "qwen3:8b-q4_K_M"
@@ -45,11 +41,13 @@ class Settings(BaseSettings):
     llm_num_ctx: int = 8192
     llm_timeout: int = 120
 
-    # LLM rule structuring
-    rule_structuring_batch_size: int = 5
-
-    # Scenario generation: default number of steps when the request omits it.
-    scenario_num_steps: int = 3
+    # LoRA rule extraction (Qwen2.5-7B-Instruct + PEFT adapter, 4-bit)
+    lora_base_model_path: Path = Path("models/Qwen2.5-7B-Instruct")
+    lora_adapter_path: Path = Path("models/lora-adapter")
+    lora_max_new_tokens: int = 2048
+    lora_max_input_length: int = 8192
+    lora_load_in_4bit: bool = True
+    lora_device_map: str | None = None
 
     # Chunking. Sizes are in characters (~4 characters == 1 token for English);
     # tune these to match the 500-1000 token / 100-200 token overlap guidance
@@ -65,10 +63,6 @@ class Settings(BaseSettings):
     min_document_chars: int = 100
     min_document_chunks: int = 1
 
-    # Search: pg_trgm similarity threshold (0..1) applied when ranking chunks
-    # from document_chunks; chunks below this score are dropped.
-    min_search_score: float = 0.5
-
     @field_validator("allowed_extensions", mode="before")
     @classmethod
     def _parse_extensions(cls, value: object) -> object:
@@ -77,11 +71,6 @@ class Settings(BaseSettings):
             items = (item.strip().lower() for item in value.split(",") if item.strip())
             return {item if item.startswith(".") else f".{item}" for item in items}
         return value
-
-    def ensure_directories(self) -> None:
-        """Create the storage and quarantine directories on demand."""
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.quarantine_dir.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache
