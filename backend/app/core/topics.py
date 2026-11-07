@@ -6,7 +6,7 @@ structuring rules, and the same vocabulary drives scenario generation.
 
 # All allowed rule topics. Anything that does not fit is mapped to "other".
 ALLOWED_TOPICS: tuple[str, ...] = (
-    "password", "phishing", "internet", "authentication", "access_control",
+    "passwords", "phishing", "internet", "authentication", "access_control",
     "incident", "backup", "email_security", "remote_access",
     "physical_security", "training", "personal_data", "management",
     "contractors_security", "monitoring", "audit", "misuse", "other",

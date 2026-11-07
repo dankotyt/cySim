@@ -9,6 +9,9 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 # Default tenant id used as a fallback when a request does not specify one.
 DEFAULT_TENANT_ID = "default"
 
+# Repository root (backend/app/core/config.py -> ... -> <repo>).
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
 
 class Settings(BaseSettings):
     """Central settings for the document analysis module.
@@ -18,7 +21,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_PROJECT_ROOT / ".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -42,8 +45,8 @@ class Settings(BaseSettings):
     llm_timeout: int = 120
 
     # LoRA rule extraction (Qwen2.5-7B-Instruct + PEFT adapter, 4-bit)
-    lora_base_model_path: Path = Path("models/Qwen2.5-7B-Instruct")
-    lora_adapter_path: Path = Path("models/lora-adapter")
+    lora_base_model_path: Path = _PROJECT_ROOT / "llms" / "base" / "Qwen2.5-7B-Instruct"
+    lora_adapter_path: Path = _PROJECT_ROOT / "llms" / "adapters" / "qwen2.5-7b-instruct-secpol-lora"
     lora_max_new_tokens: int = 2048
     lora_max_input_length: int = 8192
     lora_load_in_4bit: bool = True
@@ -70,6 +73,17 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             items = (item.strip().lower() for item in value.split(",") if item.strip())
             return {item if item.startswith(".") else f".{item}" for item in items}
+        return value
+
+    @field_validator("lora_base_model_path", "lora_adapter_path", mode="before")
+    @classmethod
+    def _resolve_paths(cls, value: object) -> object:
+        """Resolve relative LoRA paths against the repository root."""
+        if isinstance(value, (str, Path)):
+            p = Path(value)
+            if not p.is_absolute():
+                return _PROJECT_ROOT / p
+            return p
         return value
 
 

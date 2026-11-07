@@ -82,67 +82,19 @@ class DocumentService:
         return mapping[extension]
 
     async def upload_document(
-        self, session: AsyncSession, tenant_id: str, filename: str, content: bytes
+            self, session: AsyncSession, tenant_id: str, filename: str, content: bytes
     ) -> UploadResponse:
         """Parse, validate, chunk and structure a document, storing only metadata."""
         extension = Path(filename).suffix.lower()
         if extension not in self.settings.allowed_extensions:
-            raise ValueError(
-                f"Unsupported file type '{extension}'. "
-                f"Allowed: {sorted(self.settings.allowed_extensions)}"
-            )
+            raise ValueError(f"Unsupported file type '{extension}'")
         if not content:
             raise ValueError("Uploaded file is empty")
         if len(content) > self.settings.max_upload_size_mb * 1024 * 1024:
-            raise ValueError(
-                f"File exceeds the maximum size of {self.settings.max_upload_size_mb} MB"
-            )
+            raise ValueError(f"File exceeds the maximum size of {self.settings.max_upload_size_mb} MB")
 
         content_hash = hashlib.sha256(content).hexdigest()
         document_id = str(uuid.uuid4())
-
-        parsed: ParsedDocument = await asyncio.to_thread(
-            parse_file, filename, content
-        )
-        document_type = self._document_type(extension)
-        chunks = await asyncio.to_thread(
-            chunk_document,
-            parsed,
-            document_id,
-            filename,
-            document_type,
-            self.settings,
-        )
-        if not chunks:
-            raise ProcessingError(
-                f"No extractable text found in document {document_id}"
-            )
-
-        try:
-            self.validator.validate(filename, content, parsed, chunks)
-        except DocumentValidationError as exc:
-            await self.repository.create(
-                session,
-                Document(
-                    id=document_id,
-                    tenant_id=tenant_id,
-                    name=filename,
-                    content_hash=content_hash,
-                    size_bytes=len(content),
-                    status=DocumentStatus.FAILED,
-                ),
-            )
-            logger.warning(
-                "Document validation failed: id=%s error=%s", document_id, exc
-            )
-            raise ProcessingError(str(exc)) from exc
-
-        result = await self.rule_structurer.structure(
-            chunks, tenant_id, document_id
-        )
-        await self.security_rule_repository.create_many(
-            session, tenant_id, result.rules
-        )
 
         document = Document(
             id=document_id,
@@ -150,20 +102,46 @@ class DocumentService:
             name=filename,
             content_hash=content_hash,
             size_bytes=len(content),
-            rule_count=len(result.rules),
-            status=DocumentStatus.PROCESSED,
+            rule_count=0,
+            status=DocumentStatus.PROCESSING,
         )
         await self.repository.create(session, document)
+        await session.flush()
 
-        logger.info(
-            "Document processed: id=%s rules=%d tenant=%s",
-            document_id,
-            len(result.rules),
-            tenant_id,
-        )
-        return UploadResponse(
-            document_id=document_id, filename=filename, status=document.status
-        )
+        try:
+            parsed: ParsedDocument = await asyncio.to_thread(parse_file, filename, content)
+            document_type = self._document_type(extension)
+            chunks = await asyncio.to_thread(
+                chunk_document, parsed, document_id, filename, document_type, self.settings
+            )
+            if not chunks:
+                raise ProcessingError(f"No extractable text found in document {document_id}")
+
+            self.validator.validate(filename, content, parsed, chunks)
+
+            logger.info(f"Starting LLM structuring for {document_id}...")
+            result = await self.rule_structurer.structure(chunks, tenant_id, document_id)
+            logger.info(f"LLM structuring done: {len(result.rules)} rules")
+
+            await self.security_rule_repository.create_many(
+                session, tenant_id, result.rules
+            )
+
+            document.status = DocumentStatus.PROCESSED
+            document.rule_count = len(result.rules)
+            await self.repository.update(session, document)
+            await session.commit()
+
+            return UploadResponse(
+                document_id=document_id, filename=filename, status=document.status
+            )
+
+        except Exception as exc:
+            document.status = DocumentStatus.FAILED
+            await self.repository.update(session, document)
+            await session.commit()
+            logger.error(f"Processing failed for {document_id}: {exc}")
+            raise ProcessingError(str(exc)) from exc
 
     async def _require_document(
         self, session: AsyncSession, document_id: str, tenant_id: str
@@ -190,7 +168,6 @@ class DocumentService:
 
 
 _service: DocumentService | None = None
-
 
 def get_document_service() -> DocumentService:
     """Return a lazily-initialised singleton :class:`DocumentService`."""

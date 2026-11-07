@@ -1,6 +1,7 @@
 """Post-processing filters — mirror scripts/filters.py + scripts/inference.py."""
 
 import re
+from difflib import SequenceMatcher
 
 _REFERENCE_MARKERS = (
     "федеральный закон", "федеральным законом", "фз «", "фз №", "фз-",
@@ -150,3 +151,45 @@ def _is_employee_rule(text: str) -> bool:
 
 def _normalize(text: str) -> str:
     return " ".join(text.split())
+
+def _normalize_for_match(s: str) -> str:
+    s = s.lower()
+    s = re.sub(r"[^\w\s]", " ", s)
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
+
+def _fuzzy_in_chunk(text: str, chunk_norm: str, prefix_len: int = 40, threshold: float = 0.78) -> bool:
+    t = _normalize_for_match(text)
+    if not t:
+        return False
+    if t in chunk_norm:
+        return True
+    if len(t) >= prefix_len and t[:prefix_len] in chunk_norm:
+        return True
+
+    if ":" in text:
+        header_raw, bullet_raw = text.split(":", 1)
+        header = _normalize_for_match(header_raw)
+        bullet = _normalize_for_match(bullet_raw)
+        if (len(header) >= 3 and len(bullet) >= 10
+                and header in chunk_norm and bullet in chunk_norm):
+            return True
+
+    max_prefix = min(60, len(t) - 15)
+    for plen in range(max_prefix, 14, -1):
+        prefix = t[:plen]
+        if prefix not in chunk_norm:
+            continue
+        remainder = t[plen:].strip()
+        if len(remainder) >= 15 and remainder in chunk_norm:
+            return True
+
+    w = len(t)
+    if w > len(chunk_norm):
+        return False
+    step = max(1, w // 4)
+    for i in range(0, len(chunk_norm) - w + 1, step):
+        window = chunk_norm[i:i + w]
+        if SequenceMatcher(None, t, window).ratio() >= threshold:
+            return True
+    return False

@@ -58,7 +58,7 @@ class ScenarioRepository:
         orm = await session.get(ScenarioORM, scenario_id)
         return self._to_scenario(orm) if orm is not None else None
 
-    async def list(
+    async def list_scenarios(
         self, session: AsyncSession, tenant_id: str | None = None
     ) -> list[Scenario]:
         """List all scenarios, optionally filtered by tenant."""

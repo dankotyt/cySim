@@ -72,7 +72,14 @@ class LoRAProvider(LLMProvider):
             self._base_path,
             self._adapter_path,
         )
-        tokenizer = AutoTokenizer.from_pretrained(self._base_path)
+        # Prefer the adapter's tokenizer (it may carry the chat template the
+        # adapter was trained with); fall back to the base model's tokenizer.
+        tokenizer_path = (
+            self._adapter_path
+            if (Path(self._adapter_path) / "tokenizer_config.json").exists()
+            else self._base_path
+        )
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
         kwargs: dict[str, Any] = {"device_map": self._device_map}
         if self._load_in_4bit:
             kwargs["quantization_config"] = BitsAndBytesConfig(

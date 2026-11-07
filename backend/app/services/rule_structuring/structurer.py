@@ -8,9 +8,13 @@ from dataclasses import dataclass, field
 from ...core.logging import get_logger
 from ...models.document import Chunk, SecurityRule
 from ..llm_provider import LLMProvider
-from .filters import _is_employee_rule, _is_junk_rule, _normalize
+from .filters import (
+    _is_employee_rule, _is_junk_rule, _normalize,
+    _normalize_for_match, _fuzzy_in_chunk
+)
 from .prompts import _SYSTEM_PROMPT, _build_user_prompt
 from .vocab import VALID_TOPICS, _RULE_RE, _validate_audience
+
 
 logger = get_logger(__name__)
 
@@ -100,15 +104,15 @@ class LoRARuleStructurer:
         return result
 
     def _parse_rules(
-        self, raw: str, chunk_text: str, document_id: str
+            self, raw: str, chunk_text: str, document_id: str
     ) -> tuple[list[SecurityRule], int, int]:
         """Parse one model response into validated SecurityRule objects."""
         rules: list[SecurityRule] = []
         dropped = 0
         dropped_filter = 0
-        # Anti-hallucination: every number in the rule text must be present
-        # in the source chunk. Compare token sets so "12" ≠ substring of "123".
-        source_numbers = set(re.findall(r"\b\d+\b", chunk_text))
+
+        chunk_norm = _normalize_for_match(chunk_text)
+        seen_texts: set[str] = set()
 
         for raw_line in raw.split("\n"):
             line = raw_line.strip()
@@ -126,6 +130,9 @@ class LoRARuleStructurer:
             topic = match.group(2)
             text = match.group(3).strip()
 
+            if len(text) >= 2 and text[0] == '"' and text[-1] == '"':
+                text = text[1:-1].strip()
+
             if not _validate_audience(audience_str):
                 dropped += 1
                 continue
@@ -142,9 +149,17 @@ class LoRARuleStructurer:
             if self.strict and not _is_employee_rule(text):
                 dropped += 1
                 continue
-            if not set(re.findall(r"\b\d+\b", text)).issubset(source_numbers):
+
+            text_key = text[:120].lower().strip()
+            if text_key in seen_texts:
                 dropped += 1
                 continue
+
+            if not _fuzzy_in_chunk(text, chunk_norm):
+                dropped += 1
+                continue
+
+            seen_texts.add(text_key)
 
             audience = [
                 part.strip()

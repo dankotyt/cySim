@@ -11,8 +11,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Скрипты инициализации выполняются при первом запуске
-      - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./backend/migrations/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cybersim -d cybersim"]
       interval: 5s
@@ -29,6 +28,8 @@ services:
       - "11435:11434"
     volumes:
       - llm_ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_KEEP_ALIVE=10m # Держим модель в памяти 10 минут после запроса
     deploy:
       resources:
         reservations:
@@ -39,7 +40,7 @@ services:
     networks:
       - cybersim-net
 
-  # One-shot: скачивает LLM Qwen3 8B (Q4_K_M), затем завершается.
+  # One-shot: скачивает LLM (запускается один раз и завершается)
   llm-init:
     image: ollama/ollama:latest
     container_name: cybersim-llm-init
@@ -54,36 +55,36 @@ services:
       - |
         until ollama list >/dev/null 2>&1; do sleep 2; done
         ollama pull qwen3:8b-q4_K_M
-    volumes:
-      - llm_ollama_data:/root/.ollama
     networks:
       - cybersim-net
 
   backend:
     build:
-      context: .
+      context: backend
       dockerfile: Dockerfile
     container_name: cybersim-backend
     restart: unless-stopped
     env_file:
-      - ./.env
+      - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://cybersim:${POSTGRES_PASSWORD:-changeme}@postgres:5432/cybersim
       LLM_PROVIDER: ollama
       LLM_MODEL: qwen3:8b-q4_K_M
+      # ИСПРАВЛЕНО: обращаемся к сервису llm, порт внутри сети 11434
       LLM_BASE_URL: http://llm:11434
       LLM_TEMPERATURE: 0.7
       LLM_NUM_CTX: 8192
-      LLM_TIMEOUT: 120
-      # LoRA rule extraction (Qwen2.5-7B-Instruct + PEFT adapter, 4-bit)
-      LORA_BASE_MODEL_PATH: /app/models/Qwen2.5-7B-Instruct
-      LORA_ADAPTER_PATH: /app/models/lora-adapter
+      LLM_TIMEOUT: 300 # Увеличил таймаут до 5 минут, т.к. локальный инференс медленный
+      # LoRA rule extraction
+      LORA_BASE_MODEL_PATH: /llms/base/Qwen2.5-7B-Instruct
+      LORA_ADAPTER_PATH: /llms/adapters/qwen2.5-7b-instruct-secpol-lora
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
-      # Weights of the base model + LoRA adapter (bind to a local dir).
-      - ./models:/app/models
+      - ./backend:/app
+      - ./llms:/llms
+    # Выделяем оперативку для PyTorch (иначе упадет с bus error)
+    shm_size: '8gb'
     deploy:
       resources:
         reservations:

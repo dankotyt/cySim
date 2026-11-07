@@ -297,7 +297,7 @@ class ScenarioService:
     async def list_scenarios(
         self, session: AsyncSession, tenant_id: str | None = None
     ) -> list[Scenario]:
-        return await self.repository.list(session, tenant_id)
+        return await self.repository.list_scenarios(session, tenant_id)
 
     async def list_scenarios_by_rule(
         self, session: AsyncSession, rule_id: str
