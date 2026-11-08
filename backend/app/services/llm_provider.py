@@ -1,4 +1,4 @@
-"""Async LLM backends for scenario generation (Ollama + OpenAI-compatible)."""
+"""Async LLM backends (vLLM, Ollama, OpenAI-compatible HTTP APIs)."""
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -96,6 +96,10 @@ class OpenAICompatibleProvider(LLMProvider):
             headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
 
+    def _payload_model(self) -> str:
+        """Model name sent in the request payload."""
+        return self.model
+
     async def generate(self, prompt: str, **kwargs: Any) -> str:
         system = kwargs.pop("system", None)
         messages: list[dict[str, str]] = []
@@ -104,7 +108,7 @@ class OpenAICompatibleProvider(LLMProvider):
         messages.append({"role": "user", "content": prompt})
 
         payload = {
-            "model": self.model,
+            "model": self._payload_model(),
             "messages": messages,
             "temperature": self._temperature,
         }
@@ -129,18 +133,83 @@ class OpenAICompatibleProvider(LLMProvider):
             return False
 
 
+class VLLMProvider(OpenAICompatibleProvider):
+    """vLLM backend serving a LoRA adapter under its own model name.
+
+    vLLM routes ``"model": "<lora name>"`` to the loaded adapter, so the
+    payload's model field carries :attr:`lora_model_name` instead of a base
+    model id.
+    """
+
+    name = "vllm"
+
+    def __init__(
+        self,
+        base_url: str,
+        lora_model_name: str = "secpol",
+        api_key: str | None = None,
+        temperature: float = 0.7,
+        timeout: int = 120,
+        max_attempts: int = 4,
+        retry_base_delay: float = 1.0,
+    ) -> None:
+        super().__init__(
+            model="",
+            base_url=base_url,
+            api_key=api_key,
+            temperature=temperature,
+            timeout=timeout,
+        )
+        self.lora_model_name = lora_model_name
+        self._max_attempts = max_attempts
+        self._retry_base_delay = retry_base_delay
+
+    def _payload_model(self) -> str:
+        return self.lora_model_name
+
+    async def generate(self, prompt: str, **kwargs: Any) -> str:
+        """Generate with retries while vLLM is still starting up (connect only)."""
+        import asyncio
+
+        import httpx
+
+        for attempt in range(1, self._max_attempts + 1):
+            try:
+                return await super().generate(prompt, **kwargs)
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                if attempt == self._max_attempts:
+                    raise
+                delay = self._retry_base_delay * 2 ** (attempt - 1)
+                logger.warning(
+                    "vLLM not ready, retry %d/%d in %.1fs: %s",
+                    attempt,
+                    self._max_attempts,
+                    delay,
+                    exc,
+                )
+                await asyncio.sleep(delay)
+        raise RuntimeError("unreachable")  # pragma: no cover
+
+
 def get_llm_provider(settings: Settings) -> LLMProvider:
-    """Return the configured generation backend."""
-    provider_name = settings.llm_provider.lower()
-    if provider_name == "ollama":
-        return OllamaLLMProvider(
-            model=settings.llm_model,
-            base_url=settings.llm_base_url,
+    """Return the configured generation backend (all backends are HTTP-based)."""
+    backend = settings.llm_backend.lower()
+    if backend == "vllm":
+        return VLLMProvider(
+            base_url=settings.vllm_base_url,
+            lora_model_name=settings.vllm_lora_model,
+            api_key=settings.llm_api_key,
             temperature=settings.llm_temperature,
-            num_ctx=settings.llm_num_ctx,
             timeout=settings.llm_timeout,
         )
-    if provider_name == "openai":
+    if backend == "ollama":
+        return OpenAICompatibleProvider(
+            model=settings.llm_model,
+            base_url=settings.ollama_base_url,
+            temperature=settings.llm_temperature,
+            timeout=settings.llm_timeout,
+        )
+    if backend == "openai":
         return OpenAICompatibleProvider(
             model=settings.llm_model,
             base_url=settings.llm_base_url,
@@ -148,4 +217,4 @@ def get_llm_provider(settings: Settings) -> LLMProvider:
             temperature=settings.llm_temperature,
             timeout=settings.llm_timeout,
         )
-    raise ValueError(f"Unknown LLM provider: {settings.llm_provider!r}")
+    raise ValueError(f"unknown llm_backend: {settings.llm_backend}")

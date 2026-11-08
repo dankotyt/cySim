@@ -3,7 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Default tenant id used as a fallback when a request does not specify one.
@@ -35,22 +35,30 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://cybersim:changeme@localhost:5432/cybersim"
 
-    # LLM (scenario generation)
-    llm_provider: Literal["ollama", "openai"] = "ollama"
+    # LLM backend. All inference is remote over an OpenAI-compatible HTTP API:
+    # "vllm" (GPU / low-vram), "ollama" (CPU-only), "openai" (external API).
+    llm_backend: Literal["ollama", "openai", "vllm"] = "vllm"
     llm_model: str = "qwen3:8b-q4_K_M"
     llm_base_url: str = "http://localhost:11434"
-    llm_api_key: str | None = None
+    llm_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("LLM_API_KEY", "OPENAI_API_KEY"),
+    )
     llm_temperature: float = 0.7
     llm_num_ctx: int = 8192
     llm_timeout: int = 120
 
-    # LoRA rule extraction (Qwen2.5-7B-Instruct + PEFT adapter, 4-bit)
-    lora_base_model_path: Path = _PROJECT_ROOT / "llms" / "base" / "Qwen2.5-7B-Instruct"
-    lora_adapter_path: Path = _PROJECT_ROOT / "llms" / "adapters" / "qwen2.5-7b-instruct-secpol-lora"
+    # vLLM: the LoRA adapter is served under its own model name.
+    vllm_base_url: str = "http://localhost:18001/v1"
+    vllm_lora_model: str = "secpol"
+
+    # Ollama (CPU fallback), OpenAI-compatible endpoint.
+    ollama_base_url: str = "http://localhost:11434/v1"
+
+    # Rule extraction (the adapter itself is served by vLLM).
+    lora_strict: bool = False
     lora_max_new_tokens: int = 2048
     lora_max_input_length: int = 8192
-    lora_load_in_4bit: bool = True
-    lora_device_map: str | None = None
 
     # Chunking. Sizes are in characters (~4 characters == 1 token for English);
     # tune these to match the 500-1000 token / 100-200 token overlap guidance
@@ -73,17 +81,6 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             items = (item.strip().lower() for item in value.split(",") if item.strip())
             return {item if item.startswith(".") else f".{item}" for item in items}
-        return value
-
-    @field_validator("lora_base_model_path", "lora_adapter_path", mode="before")
-    @classmethod
-    def _resolve_paths(cls, value: object) -> object:
-        """Resolve relative LoRA paths against the repository root."""
-        if isinstance(value, (str, Path)):
-            p = Path(value)
-            if not p.is_absolute():
-                return _PROJECT_ROOT / p
-            return p
         return value
 
 
