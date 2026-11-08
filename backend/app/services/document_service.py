@@ -24,8 +24,8 @@ from ..repositories.security_rule_repository import SecurityRuleRepository
 from ..utils.chunking import chunk_document
 from ..utils.parsers import ParsedDocument, parse_file
 from .document_validator import DocumentValidationError, DocumentValidator
+from .llm_provider import get_llm_provider
 from .rule_structuring import LoRARuleStructurer
-from .rule_structuring.provider import LoRAProvider
 
 logger = get_logger(__name__)
 
@@ -61,16 +61,11 @@ class DocumentService:
         self.rule_structurer = rule_structurer or self._build_structurer()
 
     def _build_structurer(self) -> LoRARuleStructurer:
-        """Build the default LoRA-backed structurer from settings."""
-        provider = LoRAProvider(
-            base_model_path=self.settings.lora_base_model_path,
-            adapter_path=self.settings.lora_adapter_path,
-            max_new_tokens=self.settings.lora_max_new_tokens,
-            max_input_length=self.settings.lora_max_input_length,
-            load_in_4bit=self.settings.lora_load_in_4bit,
-            device_map=self.settings.lora_device_map,
+        """Build the structurer backed by the configured HTTP LLM backend."""
+        provider = get_llm_provider(self.settings)
+        return LoRARuleStructurer(
+            llm_provider=provider, strict=self.settings.lora_strict
         )
-        return LoRARuleStructurer(llm_provider=provider)
 
     @staticmethod
     def _document_type(extension: str) -> DocumentType:

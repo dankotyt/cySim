@@ -85,6 +85,27 @@
             cursor: not-allowed;
         }
 
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
         pre {
             background: #2c3e50;
             color: #ecf0f1;
@@ -115,15 +136,15 @@
 <h1>🛡️ CyberSim — документы и сценарии</h1>
 <p class="subtitle">Загрузка документов, извлечение правил и генерация сценариев</p>
 
-<!-- 1. ЗАГРУЗКА -->
+<!-- 1. ДОКУМЕНТЫ -->
 <div class="card">
-    <h2>1. Загрузить документ</h2>
+    <h2>1. Загрузить и обработать документ</h2>
     <label for="fileInput">Выберите файл (PDF, DOCX, TXT):</label>
     <input type="file" id="fileInput" accept=".pdf,.docx,.txt" multiple>
     <label for="tenantId">Tenant ID:</label>
     <input type="text" id="tenantId" value="test">
-    <button onclick="uploadFile()">Загрузить и извлечь правила</button>
-    <pre id="uploadResult">Результат появится здесь...</pre>
+    <button onclick="uploadFile()" id="uploadBtn">Загрузить и извлечь правила</button>
+    <pre id="uploadResult" style="margin-top:16px;">Результат появится здесь...</pre>
 </div>
 
 <!-- 2. ПРАВИЛА -->
@@ -176,6 +197,7 @@
         const fileInput = document.getElementById('fileInput');
         const tenantId = document.getElementById('tenantId').value;
         const out = document.getElementById('uploadResult');
+        const btn = document.getElementById('uploadBtn');
 
         if (!fileInput.files.length) {
             out.innerHTML = '<span class="status-err">❌ Файлы не выбраны</span>';
@@ -188,7 +210,9 @@
         }
         formData.append('tenant_id', tenantId);
 
-        out.textContent = `⏳ Загрузка и извлечение правил (может занять несколько минут)…`;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span>Идет обработка LLM...';
+        out.textContent = '⏳ Пожалуйста, подождите. Идет парсинг и извлечение правил через LoRA. Это может занять 1-2 минуты.';
 
         try {
             const res = await fetch(`${API}/api/v1/documents/upload`, {
@@ -197,11 +221,107 @@
             });
             const data = await res.json();
             out.textContent = `HTTP ${res.status}\n${JSON.stringify(data, null, 2)}`;
-            if (res.ok) loadRules();
+
+            if (res.ok) {
+                loadRules(); // Автообновление правил
+            }
         } catch (e) {
-            out.innerHTML = `<span class="status-err">❌ ${e.message}</span>`;
+            out.innerHTML = `<span class="status-err">❌ Ошибка сети: ${e.message}</span>`;
+        } finally {
+            // В любом случае возвращаем кнопку в строй
+            btn.disabled = false;
+            btn.textContent = 'Загрузить и извлечь правила';
         }
     }
+
+    async function loadDocuments() {
+        const tenantId = document.getElementById('tenantId').value;
+        const list = document.getElementById('documentsList');
+
+        try {
+            const res = await fetch(`${API}/api/v1/documents?tenant_id=${tenantId}`);
+            const data = await res.json();
+
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            if (!Array.isArray(data) || data.length === 0) {
+                list.innerHTML = '<p style="color:#7f8c8d;">Документов пока нет.</p>';
+                stopPolling(); // Если нет документов, поллинг не нужен
+                return;
+            }
+
+            let hasProcessing = false;
+            list.innerHTML = `<p><strong>Загружено документов: ${data.length}</strong></p>`;
+
+            data.forEach(doc => {
+                const div = document.createElement('div');
+                div.style.cssText = 'border:1px solid #ddd; border-radius:6px; padding:10px; margin-bottom:8px; background:#fafbfc; display:flex; justify-content:space-between; align-items:center;';
+
+                let statusColor = doc.status === 'processed' ? '#27ae60' : (doc.status === 'failed' ? '#e74c3c' : '#f39c12');
+                if (doc.status === 'processing') hasProcessing = true;
+
+                div.innerHTML = `
+                    <div>
+                        <strong>${doc.name}</strong>
+                        <span style="color:${statusColor}; font-size:12px; margin-left:10px; font-weight:bold;">[${doc.status.toUpperCase()}]</span><br>
+                        <small style="color:#7f8c8d;">ID: ${doc.id.substring(0, 8)}... · Правил: ${doc.rule_count || 0}</small>
+                        ${doc.error ? `<br><small style="color:#e74c3c;">Ошибка: ${doc.error}</small>` : ''}
+                    </div>
+                    <div>
+                        ${doc.status === 'uploaded' || doc.status === 'failed'
+                    ? `<button onclick="processDocument('${doc.id}')" style="padding:6px 12px; font-size:12px; background:#3498db;">Обработать</button>`
+                    : ''
+                }
+                    </div>
+                `;
+                list.appendChild(div);
+            });
+
+            // Если есть документы в процессе - запускаем поллинг, иначе останавливаем
+            if (hasProcessing) {
+                startPolling();
+            } else {
+                stopPolling();
+            }
+
+        } catch (e) {
+            list.innerHTML = `<span class="status-err">❌ Ошибка: ${e.message}</span>`;
+            stopPolling();
+        }
+    }
+
+    async function processDocument(docId) {
+        const tenantId = document.getElementById('tenantId').value;
+        try {
+            const res = await fetch(`${API}/api/v1/documents/${docId}/process?tenant_id=${tenantId}`, {
+                method: 'POST'
+            });
+            if (res.status === 202) {
+                loadDocuments(); // Сразу обновляем UI, чтобы увидеть статус "processing"
+            } else {
+                const data = await res.json();
+                alert(`Ошибка запуска: ${data.detail || res.status}`);
+            }
+        } catch (e) {
+            alert(`Ошибка сети: ${e.message}`);
+        }
+    }
+
+    function startPolling() {
+        if (pollingInterval) return; // Уже запущен
+        pollingInterval = setInterval(loadDocuments, 3000); // Каждые 3 секунды
+    }
+
+    function stopPolling() {
+        if (pollingInterval) {
+            clearInterval(pollingInterval);
+            pollingInterval = null;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadDocuments();
+        loadScenarios();
+    });
 
     async function checkHealth() {
         const out = document.getElementById('healthResult');

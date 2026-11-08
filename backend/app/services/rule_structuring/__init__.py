@@ -1,8 +1,7 @@
 """LoRA-based rule extraction from document chunks.
 
-The adapter is served by vLLM over an OpenAI-compatible HTTP API; this
-package turns document chunks into structured
-:class:`~app.models.document.SecurityRule` objects.
+Uses a local Qwen2.5-7B-Instruct-GPTQ-Int4 + PEFT LoRA adapter (4-bit) to turn document chunks
+into structured :class:`~app.models.document.SecurityRule` objects.
 """
 from .structurer import LoRARuleStructurer, StructureResult
 

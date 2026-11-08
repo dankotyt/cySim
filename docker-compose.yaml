@@ -1,7 +1,8 @@
 services:
-  postgres:
+  # --- Infrastructure (always on) -------------------------------------------
+  db:
     image: postgres:16-alpine
-    container_name: cybersim-postgres
+    container_name: cybersim-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: cybersim
@@ -10,7 +11,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
       - ./backend/migrations/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U cybersim -d cybersim"]
@@ -20,71 +21,72 @@ services:
     networks:
       - cybersim-net
 
-  llm:
-    image: ollama/ollama:latest
-    container_name: cybersim-llm
-    restart: unless-stopped
-    ports:
-      - "11435:11434"
-    volumes:
-      - llm_ollama_data:/root/.ollama
-    environment:
-      - OLLAMA_KEEP_ALIVE=10m # Держим модель в памяти 10 минут после запроса
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    networks:
-      - cybersim-net
-
-  # One-shot: скачивает LLM (запускается один раз и завершается)
-  llm-init:
-    image: ollama/ollama:latest
-    container_name: cybersim-llm-init
-    restart: "no"
-    depends_on:
-      llm:
-        condition: service_started
-    environment:
-      OLLAMA_HOST: http://llm:11434
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        until ollama list >/dev/null 2>&1; do sleep 2; done
-        ollama pull qwen3:8b-q4_K_M
-    networks:
-      - cybersim-net
-
   backend:
     build:
-      context: backend
+      context: ./backend
       dockerfile: Dockerfile
     container_name: cybersim-backend
     restart: unless-stopped
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://cybersim:${POSTGRES_PASSWORD:-changeme}@postgres:5432/cybersim
-      LLM_PROVIDER: ollama
-      LLM_MODEL: qwen3:8b-q4_K_M
-      # ИСПРАВЛЕНО: обращаемся к сервису llm, порт внутри сети 11434
-      LLM_BASE_URL: http://llm:11434
-      LLM_TEMPERATURE: 0.7
-      LLM_NUM_CTX: 8192
-      LLM_TIMEOUT: 300 # Увеличил таймаут до 5 минут, т.к. локальный инференс медленный
-      # LoRA rule extraction
-      LORA_BASE_MODEL_PATH: /llms/base/Qwen2.5-7B-Instruct
-      LORA_ADAPTER_PATH: /llms/adapters/qwen2.5-7b-instruct-secpol-lora
+      DATABASE_URL: postgresql+asyncpg://cybersim:${POSTGRES_PASSWORD:-changeme}@db:5432/cybersim
+      LLM_BACKEND: ${LLM_BACKEND:-vllm}
+      # Inside the docker network localhost is the backend itself.
+      VLLM_BASE_URL: http://vllm:8001/v1
+      VLLM_LORA_MODEL: ${VLLM_LORA_MODEL:-secpol}
+      OLLAMA_BASE_URL: http://ollama:11434/v1
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      HF_TOKEN: ${HF_TOKEN:-}
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
+    # No dependency on vllm/ollama: the "cpu" profile must work without them.
+    # The HTTP client retries on connect, so a late vLLM start is tolerated.
+    depends_on:
+      db:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - cybersim-net
+
+  # --- GPU profiles: vLLM with the secpol LoRA adapter ----------------------
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: cybersim-vllm
+    restart: unless-stopped
+    profiles: ["gpu", "low-vram"]
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
       - ./llms:/llms
-    # Выделяем оперативку для PyTorch (иначе упадет с bus error)
-    shm_size: '8gb'
+      # Keep the downloaded weights between restarts (~15 GB otherwise).
+      - hf_cache:/root/.cache/huggingface
+    # Local debugging only: remove `ports` in production and use `expose`.
+    ports:
+      - "18001:8001"
+    # vLLM starts in 30-90 s; curl is not guaranteed in the image, python3 is.
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\" || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    # Shell form so an empty VLLM_EXTRA_ARGS adds no argument at all.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        exec vllm serve "${VLLM_MODEL:-Qwen/Qwen2.5-7B-Instruct}" \
+          --enable-lora \
+          --lora-modules "${VLLM_LORA_MODEL:-secpol}=/llms/adapters/qwen2.5-7b-instruct-secpol-lora" \
+          --host 0.0.0.0 \
+          --port 8001 \
+          ${VLLM_EXTRA_ARGS:-}
     deploy:
       resources:
         reservations:
@@ -92,20 +94,32 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-    depends_on:
-      postgres:
-        condition: service_healthy
-      llm:
-        condition: service_started
-      llm-init:
-        condition: service_completed_successfully
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - cybersim-net
+
+  # --- CPU profile: ollama (llama.cpp under the hood) -----------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: cybersim-ollama
+    restart: unless-stopped
+    profiles: ["cpu"]
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     networks:
       - cybersim-net
 
 volumes:
-  postgres_data:
-  llm_ollama_data:
+  pgdata:
+  hf_cache:
+  ollama_models:
 
 networks:
   cybersim-net:
