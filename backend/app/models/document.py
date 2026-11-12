@@ -1,11 +1,10 @@
-"""Pydantic models for documents, chunks and search results."""
+"""Pydantic models for documents and security rules."""
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator
 
-from ..core.config import DEFAULT_TENANT_ID
 from ..core.topics import ALLOWED_TOPICS
 
 
@@ -56,22 +55,6 @@ class UploadResponse(BaseModel):
     status: DocumentStatus
 
 
-class ProcessRequest(BaseModel):
-    """Request body for triggering document processing."""
-
-    document_id: str
-    tenant_id: str = DEFAULT_TENANT_ID
-
-
-class ProcessResponse(BaseModel):
-    """Result of a document processing run."""
-
-    document_id: str
-    status: DocumentStatus
-    chunks_created: int = 0
-    pages_parsed: int = 0
-
-
 class Chunk(BaseModel):
     """A single text chunk with its provenance metadata."""
 
@@ -82,34 +65,6 @@ class Chunk(BaseModel):
     chunk_index: int
     source: str
     document_type: DocumentType
-
-
-class SearchQuery(BaseModel):
-    """Request model for full-text search."""
-
-    query: str
-    tenant_id: str = DEFAULT_TENANT_ID
-    top_k: int = 5
-    filename: str | None = None
-    document_type: DocumentType | None = None
-
-
-class SearchResult(BaseModel):
-    """A single retrieved chunk."""
-
-    document_id: str
-    text: str
-    source: str
-    page: int
-    score: float
-
-
-class SearchResponse(BaseModel):
-    """A list of retrieved chunks for a query."""
-
-    query: str
-    results: list[SearchResult]
-    message: str | None = None
 
 
 class SecurityRule(BaseModel):
@@ -138,12 +93,3 @@ class DeleteResponse(BaseModel):
 
     document_id: str
     deleted: bool
-
-
-class MetricsResponse(BaseModel):
-    """Aggregated processing metrics."""
-
-    documents_processed: int
-    documents_failed: int
-    total_chunks: int
-    average_processing_seconds: float

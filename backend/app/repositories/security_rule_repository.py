@@ -52,6 +52,15 @@ class SecurityRuleRepository:
         orm = await session.get(SecurityRuleORM, rule_id)
         return self._to_rule(orm) if orm is not None else None
 
+    async def get_for_tenant(
+        self, session: AsyncSession, rule_id: str, tenant_id: str
+    ) -> SecurityRule | None:
+        """Return a rule only when it belongs to ``tenant_id``."""
+        orm = await session.get(SecurityRuleORM, rule_id)
+        if orm is None or orm.tenant_id != tenant_id:
+            return None
+        return self._to_rule(orm)
+
     async def delete(self, session: AsyncSession, rule_id: str) -> bool:
         """Delete a single rule; return ``False`` when the id is unknown.
 

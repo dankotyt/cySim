@@ -85,8 +85,10 @@ class ScenarioService:
         self, session: AsyncSession, request: GenerateScenarioRequest
     ) -> GenerateScenarioResponse:
         """Generate a single scenario for the rule named by ``request.rule_id``."""
-        rule = await self.rule_repository.get(session, request.rule_id)
-        if rule is None or rule.tenant_id != request.tenant_id:
+        rule = await self.rule_repository.get_for_tenant(
+            session, request.rule_id, request.tenant_id
+        )
+        if rule is None:
             raise RuleNotFoundError(f"Rule not found: {request.rule_id!r}")
 
         scenario = await self._generate_for_rule(

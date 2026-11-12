@@ -71,6 +71,15 @@ async def test_generate_scenario_unknown_rule_raises(db_session):
         await service.generate_scenario(db_session, request)
 
 
+async def test_generate_scenario_rejects_foreign_tenant(db_session):
+    [rule] = await _seed_rules(db_session, tenant_id="acme")
+    service = _service()
+    request = GenerateScenarioRequest(tenant_id="other", rule_id=rule.id)
+
+    with pytest.raises(RuleNotFoundError):
+        await service.generate_scenario(db_session, request)
+
+
 async def test_generate_scenario_retries_on_invalid_json(db_session):
     [rule] = await _seed_rules(db_session)
     service = _service(llm=FakeLLMProvider(responses=["not-json"]))
