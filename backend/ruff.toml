@@ -1,0 +1,10 @@
+# Ruff configuration (backend only).
+# Deliberately narrow for the first CI iteration: catches syntax errors,
+# undefined names and broken comparisons without drowning the repo in style
+# findings. Widen after the cleanup pass — see docs/ci.md.
+line-length = 120
+target-version = "py312"
+extend-exclude = ["migrations/versions"]
+
+[lint]
+select = ["E9", "F63", "F7", "F82"]

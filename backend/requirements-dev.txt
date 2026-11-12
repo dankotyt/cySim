@@ -1,0 +1,6 @@
+# Development-only dependencies (CI installs this file, it pulls runtime deps).
+-r requirements.txt
+
+# Linting (see docs/adr/0006-ci-baseline.md). The rule set is intentionally
+# narrow for now and will be widened after the first cleanup pass.
+ruff>=0.6
