@@ -50,7 +50,7 @@ Backend — модульный монолит: API → сервисы → реп
 | `core/topics.py` | Единый словарь `ALLOWED_TOPICS` (18 тем) |
 | `core/database.py` | Async engine и фабрика сессий (asyncpg) |
 | `core/logging.py` | Централизованная настройка логов |
-| `models/document.py` | `Document`, `UploadResponse`, `SecurityRule`, `DeleteResponse` (+ мёртвые DTO, §11) |
+| `models/document.py` | `Document`, `UploadResponse`, `Chunk`, `SecurityRule`, `DeleteResponse` |
 | `models/scenario.py` | `Scenario`, `ScenarioAction`, `ScenarioScoring`, `ScenarioStepType`, запросы/ответы генерации |
 | `models/department.py` | `Department.allowed_topics` |
 | `models/db_models.py` | ORM: `documents`, `security_rules`, `departments`, `scenarios` |
@@ -58,7 +58,6 @@ Backend — модульный монолит: API → сервисы → реп
 | `repositories/security_rule_repository.py` | Создание пачкой, выборки по тенанту/темам/фильтрам, удаление |
 | `repositories/department_repository.py` | CRUD отделов, `get_or_create_default` |
 | `repositories/scenario_repository.py` | CRUD сценариев, выборка по правилу |
-| `repositories/missing_reference_repository.py` | Мёртвый модуль (§11) |
 | `services/document_service.py` | Пайплайн загрузки: validate → parse → chunk → structure → rules → metadata |
 | `services/document_validator.py` | MIME (libmagic), расширение, объём, минимум текста/чанков |
 | `services/rule_structuring/` | LoRA-структурирование: `vocab`, `prompts`, `filters`, `structurer` |
@@ -131,7 +130,6 @@ Backend — модульный монолит: API → сервисы → реп
 | `LLMProvider` | Абстракция: `generate()`, `is_available()` |
 | `OpenAICompatibleProvider` | `/chat/completions` по HTTP; используется для `ollama` и `openai` |
 | `VLLMProvider` | То же, но `model` в payload = имя LoRA (`secpol`); retry только на `ConnectError/ConnectTimeout` при прогреве vLLM |
-| `OllamaLLMProvider` | Нативный клиент Ollama; **не используется** фабрикой (§11) |
 | `get_llm_provider(settings)` | `vllm` → `VLLMProvider`, `ollama` → `OpenAICompatibleProvider(ollama_base_url)`, `openai` → `OpenAICompatibleProvider(llm_base_url, api_key)` |
 
 Настройки (`Settings`): `llm_backend`, `vllm_base_url`, `vllm_lora_model`, `ollama_base_url`, `llm_base_url`, `llm_model`, `llm_api_key` (env: `LLM_API_KEY` или `OPENAI_API_KEY`), `llm_temperature`, `llm_num_ctx`, `llm_timeout`, `lora_strict`.
@@ -184,16 +182,12 @@ CI (`.github/workflows/ci.yml`, ADR-0006): `lint` (ruff, узкий набор �
 
 | # | Проблема | Следствие |
 |---|---|---|
-| 1 | `repositories/missing_reference_repository.py` импортирует удалённый `MissingReferenceORM` | модуль падает при импорте; мёртвый код |
-| 2 | `OllamaLLMProvider` не используется фабрикой (ollama идёт через OpenAI-compatible) | мёртвый класс, лишняя зависимость |
-| 3 | В `models/document.py` остались `ProcessRequest/Response`, `Chunk`, `SearchQuery/Result/Response`, `MetricsResponse` | мёртвые DTO без эндпоинтов |
-| 4 | `Settings.lora_max_new_tokens` / `lora_max_input_length` больше не читаются | мёртвые настройки |
-| 5 | `scenarios` — плоский одношаговый формат, ADR-0007 требует «комнату» | миграция и новый движок |
-| 6 | `GET /scenarios/{id}` отдаёт `is_correct` и `points` | ответ читается в DevTools (ADR-0007 §public) |
-| 7 | `tenant_id` из запроса, нет auth | IDOR между арендаторами (ADR-0004) |
-| 8 | `rule_id ON DELETE CASCADE` | удаление документа уничтожает историю обучения |
-| 9 | `CORS allow_origins=["*"]` | несовместимо с cookie-сессиями и production |
-| 10 | `init.sql` и ORM поддерживаются вручную | риск расхождения DDL |
+| 1 | `scenarios` — плоский одношаговый формат, ADR-0007 требует «комнату» | миграция и новый движок |
+| 2 | `GET /scenarios/{id}` отдаёт `is_correct` и `points` | ответ читается в DevTools (ADR-0007 §public) |
+| 3 | `tenant_id` из запроса, нет auth | IDOR между арендаторами (ADR-0004) |
+| 4 | `rule_id ON DELETE CASCADE` | удаление документа уничтожает историю обучения |
+| 5 | `CORS allow_origins=["*"]` | несовместимо с cookie-сессиями и production |
+| 6 | `init.sql` и ORM поддерживаются вручную | риск расхождения DDL |
 
 ## 12. Ссылки
 
