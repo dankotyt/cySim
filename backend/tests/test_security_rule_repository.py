@@ -41,7 +41,7 @@ async def test_create_many_persists_full_rule(db_session):
         [
             _rule(
                 description="Пароль должен содержать 12 символов.",
-                topic="password",
+                topic="passwords",
                 audience=["it", "security"],
                 document_id="doc-1",
             )
@@ -51,7 +51,7 @@ async def test_create_many_persists_full_rule(db_session):
     rows = (await db_session.execute(select(SecurityRuleORM))).scalars().all()
 
     assert len(rows) == 1
-    assert rows[0].topic == "password"
+    assert rows[0].topic == "passwords"
     assert rows[0].audience == ["it", "security"]
     assert rows[0].document_id == "doc-1"
 

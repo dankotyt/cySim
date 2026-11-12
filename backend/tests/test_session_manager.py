@@ -4,7 +4,7 @@ from tests.fakes import FakeLLMProvider
 
 
 class _EmptyLLM(FakeLLMProvider):
-    def generate(self, prompt, **kwargs):
+    async def generate(self, prompt, **kwargs):
         self.calls.append(prompt)
         return ""
 
@@ -23,24 +23,24 @@ def test_with_anchor():
     assert SessionManager._with_anchor(None, None) is None
 
 
-def test_generate_returns_response_and_tracks_tokens():
+async def test_generate_returns_response_and_tracks_tokens():
     llm = FakeLLMProvider()
     sm = SessionManager(llm, num_ctx=10000, threshold=0.75)
 
-    response = sm.generate("hello")
+    response = await sm.generate("hello")
 
     assert response
     assert sm.current_tokens > 0
 
 
-def test_generate_resets_when_over_threshold():
+async def test_generate_resets_when_over_threshold():
     llm = _EmptyLLM()
     sm = SessionManager(llm, num_ctx=1000, threshold=0.75)  # threshold 750 tokens
 
     for _ in range(7):
-        sm.generate("a" * 350)  # ~100 tokens + 1 (empty response) each
+        await sm.generate("a" * 350)  # ~100 tokens + 1 (empty response) each
 
     before = sm.current_tokens
-    sm.generate("a" * 350)  # crosses the threshold -> reset
+    await sm.generate("a" * 350)  # crosses the threshold -> reset
 
     assert sm.current_tokens < before

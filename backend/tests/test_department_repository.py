@@ -7,7 +7,7 @@ def _department(**overrides):
     defaults = dict(
         tenant_id="acme",
         name="sales",
-        allowed_topics=["phishing", "vishing"],
+        allowed_topics=["phishing", "internet"],
     )
     defaults.update(overrides)
     return Department(**defaults)
@@ -20,7 +20,7 @@ async def test_create_and_get_by_name(db_session):
     stored = await repo.get_by_name(db_session, "acme", "sales")
 
     assert stored is not None
-    assert stored.allowed_topics == ["phishing", "vishing"]
+    assert stored.allowed_topics == ["phishing", "internet"]
 
 
 async def test_get_by_name_missing_returns_none(db_session):

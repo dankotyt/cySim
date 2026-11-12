@@ -22,52 +22,6 @@ class LLMProvider(ABC):
         """Return ``True`` when the backend is reachable."""
 
 
-class OllamaLLMProvider(LLMProvider):
-    """Generation backend backed by a local Ollama instance (Qwen 3)."""
-
-    name = "ollama"
-
-    def __init__(
-        self,
-        model: str,
-        base_url: str,
-        temperature: float = 0.7,
-        num_ctx: int = 8192,
-        timeout: int = 120,
-    ) -> None:
-        import ollama  # local import to keep the OpenAI path dependency-free
-
-        self.model = model
-        self._client = ollama.AsyncClient(host=base_url, timeout=timeout)
-        self._temperature = temperature
-        self._num_ctx = num_ctx
-
-    async def generate(self, prompt: str, **kwargs: Any) -> str:
-        system = kwargs.pop("system", None)
-        messages: list[dict[str, str]] = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-
-        response = await self._client.chat(
-            model=self.model,
-            messages=messages,
-            options={
-                "temperature": self._temperature,
-                "num_ctx": self._num_ctx,
-            },
-        )
-        return response["message"]["content"]
-
-    async def is_available(self) -> bool:
-        try:
-            await self._client.list()
-            return True
-        except Exception as exc:  # noqa: BLE001 - availability check must not raise
-            logger.warning("Ollama LLM backend unavailable: %s", exc)
-            return False
-
-
 class OpenAICompatibleProvider(LLMProvider):
     """Generation backend for OpenAI-compatible APIs (DeepSeek, YandexGPT, GigaChat)."""
 

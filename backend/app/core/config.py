@@ -57,8 +57,6 @@ class Settings(BaseSettings):
 
     # Rule extraction (the adapter itself is served by vLLM).
     lora_strict: bool = False
-    lora_max_new_tokens: int = 2048
-    lora_max_input_length: int = 8192
 
     # Chunking. Sizes are in characters (~4 characters == 1 token for English);
     # tune these to match the 500-1000 token / 100-200 token overlap guidance

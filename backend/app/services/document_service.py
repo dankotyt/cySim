@@ -23,7 +23,7 @@ from ..repositories.document_repository import DocumentRepository
 from ..repositories.security_rule_repository import SecurityRuleRepository
 from ..utils.chunking import chunk_document
 from ..utils.parsers import ParsedDocument, parse_file
-from .document_validator import DocumentValidationError, DocumentValidator
+from .document_validator import DocumentValidator
 from .llm_provider import get_llm_provider
 from .rule_structuring import LoRARuleStructurer
 

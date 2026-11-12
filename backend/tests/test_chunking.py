@@ -1,4 +1,4 @@
-"""Unit tests for semantic chunking."""
+"""Unit tests for recursive document chunking."""
 from app.models.document import DocumentType
 from app.utils.chunking import chunk_document
 from app.utils.parsers import PageText, ParsedDocument

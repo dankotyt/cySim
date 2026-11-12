@@ -7,7 +7,7 @@ def test_build_scenario_context_formats_rules():
     rules = [
         SecurityRule(
             description="Запрещено передавать учётные данные третьим лицам.",
-            topic="password",
+            topic="passwords",
             audience=["general"],
             document_id="doc-1",
         ),
@@ -20,7 +20,7 @@ def test_build_scenario_context_formats_rules():
     ]
     context = build_scenario_context(rules)
 
-    assert "Правило 1 [password]" in context
+    assert "Правило 1 [passwords]" in context
     assert "Правило 2 [phishing]" in context
     assert "Запрещено передавать учётные данные" in context
     assert "Аудитория: general" in context
