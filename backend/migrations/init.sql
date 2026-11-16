@@ -10,17 +10,20 @@ CREATE TABLE IF NOT EXISTS documents (
     size_bytes   INTEGER      NOT NULL DEFAULT 0,
     rule_count   INTEGER      NOT NULL DEFAULT 0,
     status       VARCHAR(16)  NOT NULL DEFAULT 'uploaded',
-    created_at   TIMESTAMPTZ  NOT NULL DEFAULT now()
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    deleted_at   TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS security_rules (
-    id          VARCHAR(36)  PRIMARY KEY,
-    tenant_id   VARCHAR(255) NOT NULL,
-    document_id VARCHAR(36)  NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    description TEXT         NOT NULL,
-    topic       VARCHAR(64)  NOT NULL,
-    audience    JSON         NOT NULL DEFAULT '[]'::json,
-    created_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+    id           VARCHAR(36)  PRIMARY KEY,
+    tenant_id    VARCHAR(255) NOT NULL,
+    document_id  VARCHAR(36)  NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    description  TEXT         NOT NULL,
+    topic        VARCHAR(64)  NOT NULL,
+    audience     JSON         NOT NULL DEFAULT '[]'::json,
+    content_hash VARCHAR(64)  NOT NULL,
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    deleted_at   TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS departments (
@@ -33,32 +36,38 @@ CREATE TABLE IF NOT EXISTS departments (
 );
 
 CREATE TABLE IF NOT EXISTS scenarios (
-    id          VARCHAR(36)  PRIMARY KEY,
-    tenant_id   VARCHAR(255) NOT NULL,
-    rule_id     VARCHAR(36)  REFERENCES security_rules(id) ON DELETE CASCADE,
-    title       VARCHAR(255) NOT NULL,
-    topic       VARCHAR(64)  NOT NULL,
-    step_type   VARCHAR(64)  NOT NULL,
-    content     TEXT         NOT NULL,
-    actions     JSON         NOT NULL,
-    feedback    TEXT         NOT NULL,
-    scoring     JSON         NOT NULL,
-    department  VARCHAR(255),
-    status      VARCHAR(16)  NOT NULL DEFAULT 'draft',
-    created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+    id            VARCHAR(36)  PRIMARY KEY,
+    tenant_id     VARCHAR(255) NOT NULL,
+    rule_id       VARCHAR(36)  REFERENCES security_rules(id) ON DELETE CASCADE,
+    title         VARCHAR(255) NOT NULL,
+    topic         VARCHAR(64)  NOT NULL,
+    step_type     VARCHAR(64)  NOT NULL,
+    content       TEXT         NOT NULL,
+    actions       JSON         NOT NULL,
+    feedback      TEXT         NOT NULL,
+    scoring       JSON         NOT NULL,
+    rule_snapshot JSON,
+    department    VARCHAR(255),
+    status        VARCHAR(16)  NOT NULL DEFAULT 'draft',
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    deleted_at    TIMESTAMPTZ
 );
 
 -- Indexes
-CREATE INDEX IF NOT EXISTS idx_documents_tenant_id ON documents (tenant_id);
-CREATE INDEX IF NOT EXISTS idx_documents_status     ON documents (status);
+CREATE INDEX IF NOT EXISTS idx_documents_tenant_id      ON documents (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_documents_status         ON documents (status);
+CREATE INDEX IF NOT EXISTS idx_documents_tenant_deleted ON documents (tenant_id, deleted_at);
 
-CREATE INDEX IF NOT EXISTS idx_security_rules_tenant_id   ON security_rules (tenant_id);
-CREATE INDEX IF NOT EXISTS idx_security_rules_document_id ON security_rules (document_id);
+CREATE INDEX IF NOT EXISTS idx_security_rules_tenant_id           ON security_rules (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_security_rules_document_id         ON security_rules (document_id);
+CREATE INDEX IF NOT EXISTS idx_security_rules_tenant_content_hash ON security_rules (tenant_id, content_hash);
+CREATE INDEX IF NOT EXISTS idx_security_rules_tenant_deleted      ON security_rules (tenant_id, deleted_at);
 
 CREATE INDEX IF NOT EXISTS idx_departments_tenant_id ON departments (tenant_id);
 
-CREATE INDEX IF NOT EXISTS idx_scenarios_tenant_id ON scenarios (tenant_id);
-CREATE INDEX IF NOT EXISTS idx_scenarios_rule_id   ON scenarios (rule_id);
-CREATE INDEX IF NOT EXISTS idx_scenarios_status    ON scenarios (status);
-CREATE INDEX IF NOT EXISTS idx_scenarios_topic     ON scenarios (topic);
+CREATE INDEX IF NOT EXISTS idx_scenarios_tenant_id      ON scenarios (tenant_id);
+CREATE INDEX IF NOT EXISTS idx_scenarios_rule_id        ON scenarios (rule_id);
+CREATE INDEX IF NOT EXISTS idx_scenarios_status         ON scenarios (status);
+CREATE INDEX IF NOT EXISTS idx_scenarios_topic          ON scenarios (topic);
+CREATE INDEX IF NOT EXISTS idx_scenarios_tenant_deleted ON scenarios (tenant_id, deleted_at);
