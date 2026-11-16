@@ -1,18 +1,29 @@
-"""Shared test doubles."""
+"""Shared test doubles and fixture payloads."""
+import json
+
 from app.services.llm_provider import LLMProvider
 
+# A room that passes L0-L3 for the phishing rule used across tests: one
+# malicious email with a hard attachment trap and a soft reply trap.
+VALID_ROOM = {
+    "v": 1,
+    "title": "Сверка за квартал",
+    "brief": (
+        "На рабочую почту пришло письмо с вложением от неизвестного отправителя. "
+        "Решите, что делать с письмом и вложением, действуя по политике компании."
+    ),
+    "diff": 2,
+    "objs": [{"id": "o1", "kind": "email", "ref": "fx:email:em-0001"}],
+    "goal": "report(o1)",
+}
 
-VALID_SCENARIO_JSON = (
-    '{"title": "Фишинг-тест", '
-    '"step_type": "email_view", '
-    '"content": "Письмо с вложением", '
-    '"actions": ['
-    '{"id": "a", "label": "Открыть", "is_correct": false, "consequence": "Заражение", "points": 0}, '
-    '{"id": "b", "label": "Сообщить в СБ", "is_correct": true, "consequence": "Локализовано", "points": 10}'
-    '], '
-    '"feedback": "Правильно", '
-    '"scoring": {"max_points": 10, "passing_score": 7}}'
-)
+VALID_ROOM_JSON = json.dumps(VALID_ROOM, ensure_ascii=False)
+
+
+def room_json(**overrides: object) -> str:
+    """Return a valid room payload with selected fields overridden."""
+    payload = {**VALID_ROOM, **overrides}
+    return json.dumps(payload, ensure_ascii=False)
 
 
 class FakeLLMProvider(LLMProvider):
@@ -28,7 +39,7 @@ class FakeLLMProvider(LLMProvider):
         self.calls.append(prompt)
         if self._responses:
             return self._responses.pop(0)
-        return VALID_SCENARIO_JSON
+        return VALID_ROOM_JSON
 
     async def is_available(self) -> bool:
         return True

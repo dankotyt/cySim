@@ -104,31 +104,30 @@ class DepartmentORM(Base):
 
 
 class ScenarioORM(Base):
-    """Training scenario generated from security rules."""
+    """A generated room scenario.
+
+    ``room`` is the whole contract document (objects, goal, brief, difficulty);
+    the scalar columns beside it exist for filtering and analytics only.
+    """
 
     __tablename__ = "scenarios"
     __table_args__ = (
         Index("idx_scenarios_tenant_deleted", "tenant_id", "deleted_at"),
+        Index("idx_scenarios_tenant_fingerprint", "tenant_id", "fingerprint"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     tenant_id: Mapped[str] = mapped_column(String(255), index=True)
-    rule_id: Mapped[str | None] = mapped_column(
-        String(36),
-        ForeignKey("security_rules.id", ondelete="CASCADE"),
-        nullable=True,
-        index=True,
-    )
     title: Mapped[str] = mapped_column(String(255))
-    topic: Mapped[str] = mapped_column(String(64), nullable=False)
-    step_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    actions: Mapped[list] = mapped_column(JSON, nullable=False)
-    feedback: Mapped[str] = mapped_column(Text, nullable=False)
-    scoring: Mapped[dict] = mapped_column(JSON, nullable=False)
+    topic: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    room: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    max_points: Mapped[int] = mapped_column(Integer, default=0)
+    diff: Mapped[int] = mapped_column(Integer, default=1)
+    fingerprint: Mapped[str] = mapped_column(String(64), default="")
+    corpus_build_id: Mapped[str] = mapped_column(String(64), default="")
     rule_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     department: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    status: Mapped[str] = mapped_column(String(16), default="draft")
+    status: Mapped[str] = mapped_column(String(16), default="generated")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
     )
@@ -136,5 +135,36 @@ class ScenarioORM(Base):
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
     )
     deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class ScenarioAttemptORM(Base):
+    """One trainee attempt at a room, stored as an event log.
+
+    The outcome and score are denormalised for analytics; the log stays the
+    source of truth and the engine can always re-evaluate it.
+    """
+
+    __tablename__ = "scenario_attempts"
+    __table_args__ = (
+        Index("idx_scenario_attempts_tenant_employee", "tenant_id", "employee_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    scenario_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("scenarios.id", ondelete="CASCADE"), nullable=False
+    )
+    employee_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    events: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    outcome: Mapped[str] = mapped_column(String(16), default="in_progress")
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_points: Mapped[int] = mapped_column(Integer, nullable=False)
+    lessons: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

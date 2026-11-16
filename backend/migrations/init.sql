@@ -36,22 +36,35 @@ CREATE TABLE IF NOT EXISTS departments (
 );
 
 CREATE TABLE IF NOT EXISTS scenarios (
-    id            VARCHAR(36)  PRIMARY KEY,
-    tenant_id     VARCHAR(255) NOT NULL,
-    rule_id       VARCHAR(36)  REFERENCES security_rules(id) ON DELETE CASCADE,
-    title         VARCHAR(255) NOT NULL,
-    topic         VARCHAR(64)  NOT NULL,
-    step_type     VARCHAR(64)  NOT NULL,
-    content       TEXT         NOT NULL,
-    actions       JSON         NOT NULL,
-    feedback      TEXT         NOT NULL,
-    scoring       JSON         NOT NULL,
-    rule_snapshot JSON,
-    department    VARCHAR(255),
-    status        VARCHAR(16)  NOT NULL DEFAULT 'draft',
-    created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    deleted_at    TIMESTAMPTZ
+    id              VARCHAR(36)  PRIMARY KEY,
+    tenant_id       VARCHAR(255) NOT NULL,
+    title           VARCHAR(255) NOT NULL,
+    topic           VARCHAR(64)  NOT NULL,
+    room            JSON,
+    max_points      INTEGER      NOT NULL DEFAULT 0,
+    diff            INTEGER      NOT NULL DEFAULT 1,
+    fingerprint     VARCHAR(64)  NOT NULL DEFAULT '',
+    corpus_build_id VARCHAR(64)  NOT NULL DEFAULT '',
+    rule_snapshot   JSON,
+    department      VARCHAR(255),
+    status          VARCHAR(16)  NOT NULL DEFAULT 'generated',
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    deleted_at      TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS scenario_attempts (
+    id          VARCHAR(36)  PRIMARY KEY,
+    tenant_id   VARCHAR(255) NOT NULL,
+    scenario_id VARCHAR(36)  NOT NULL REFERENCES scenarios(id) ON DELETE CASCADE,
+    employee_id VARCHAR(255) NOT NULL,
+    events      JSON         NOT NULL DEFAULT '[]',
+    outcome     VARCHAR(16)  NOT NULL DEFAULT 'in_progress',
+    score       INTEGER,
+    max_points  INTEGER      NOT NULL,
+    lessons     JSON         NOT NULL DEFAULT '[]',
+    started_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    finished_at TIMESTAMPTZ
 );
 
 -- Indexes
@@ -67,7 +80,12 @@ CREATE INDEX IF NOT EXISTS idx_security_rules_tenant_deleted      ON security_ru
 CREATE INDEX IF NOT EXISTS idx_departments_tenant_id ON departments (tenant_id);
 
 CREATE INDEX IF NOT EXISTS idx_scenarios_tenant_id      ON scenarios (tenant_id);
-CREATE INDEX IF NOT EXISTS idx_scenarios_rule_id        ON scenarios (rule_id);
 CREATE INDEX IF NOT EXISTS idx_scenarios_status         ON scenarios (status);
 CREATE INDEX IF NOT EXISTS idx_scenarios_topic          ON scenarios (topic);
 CREATE INDEX IF NOT EXISTS idx_scenarios_tenant_deleted ON scenarios (tenant_id, deleted_at);
+CREATE INDEX IF NOT EXISTS idx_scenarios_tenant_fingerprint ON scenarios (tenant_id, fingerprint);
+
+CREATE INDEX IF NOT EXISTS idx_scenario_attempts_tenant_employee
+    ON scenario_attempts (tenant_id, employee_id);
+CREATE INDEX IF NOT EXISTS idx_scenario_attempts_scenario_id
+    ON scenario_attempts (scenario_id);

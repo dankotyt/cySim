@@ -2,7 +2,7 @@
 import pytest
 
 from app.models.document import Document, DocumentStatus, SecurityRule
-from app.models.scenario import Scenario, ScenarioAction, ScenarioScoring
+from app.models.scenario import Room, RuleSnapshot, Scenario, max_points_for
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.scenario_repository import ScenarioRepository
 from app.repositories.security_rule_repository import SecurityRuleRepository
@@ -10,6 +10,8 @@ from app.services.document_service import (
     DocumentNotFoundError,
     DocumentService,
 )
+from app.services.scenario_generation import room_fingerprint
+from tests.fakes import VALID_ROOM
 
 
 async def _seed(session, tenant_id="acme"):
@@ -33,25 +35,22 @@ async def _seed(session, tenant_id="acme"):
         session, tenant_id, [rule]
     )
 
+    room = Room.model_validate({**VALID_ROOM, "topic": "phishing"})
     scenario = Scenario(
         id="sc-1",
         tenant_id=tenant_id,
-        rule_id=created_rule.id,
-        title="Письмо с вложением",
+        rule_snapshot=RuleSnapshot(
+            id=created_rule.id,
+            description=created_rule.description,
+            topic=created_rule.topic,
+            audience=["general"],
+            document_id=document.id,
+        ),
         topic="phishing",
-        step_type="email_view",
-        content="Письмо с подозрительным вложением.",
-        actions=[
-            ScenarioAction(
-                id="a",
-                label="Сообщить в ИБ",
-                is_correct=True,
-                consequence="Инцидент зарегистрирован.",
-                points=10,
-            )
-        ],
-        feedback="Верно.",
-        scoring=ScenarioScoring(max_points=10, passing_score=7),
+        corpus_build_id="fx",
+        fingerprint=room_fingerprint(room),
+        max_points=max_points_for(room.diff),
+        room=room,
     )
     await ScenarioRepository().create(session, scenario)
     return document, created_rule, scenario

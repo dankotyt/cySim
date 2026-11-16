@@ -1,4 +1,4 @@
-"""Tests for the scenario generation service."""
+"""Tests for room generation, batch runs and scenario CRUD."""
 import pytest
 
 from app.models.department import Department
@@ -20,6 +20,13 @@ from app.services.scenario_service import (
 from tests.fakes import FakeLLMProvider
 
 
+class _BrokenGenerator:
+    """Generator stub that always fails, to exercise the batch error path."""
+
+    async def generate(self, **kwargs):
+        raise RuntimeError("llm is down")
+
+
 def _rule(**overrides):
     defaults = dict(
         description="Запрещено передавать учётные данные третьим лицам.",
@@ -32,7 +39,16 @@ def _rule(**overrides):
 
 
 async def _seed_rules(session, tenant_id="acme", topics=("phishing",)):
-    rules = [_rule(topic=topic) for topic in topics]
+    rules = [
+        _rule(
+            topic=topic,
+            description=(
+                f"Правило {index}: запрещено передавать учётные данные "
+                "третьим лицам."
+            ),
+        )
+        for index, topic in enumerate(topics, start=1)
+    ]
     return await SecurityRuleRepository().create_many(session, tenant_id, rules)
 
 
@@ -43,7 +59,7 @@ def _service(llm=None):
     )
 
 
-async def test_generate_scenario_persists_and_returns(db_session):
+async def test_generate_scenario_persists_a_room(db_session):
     [rule] = await _seed_rules(db_session)
     service = _service()
     request = GenerateScenarioRequest(tenant_id="acme", rule_id=rule.id)
@@ -51,16 +67,18 @@ async def test_generate_scenario_persists_and_returns(db_session):
     response = await service.generate_scenario(db_session, request)
 
     assert isinstance(response, GenerateScenarioResponse)
-    assert response.scenario_id
     assert response.status == "generated"
-    assert response.scenario.title
+    assert response.scenario.room.v == 1
+    assert response.scenario.room.goal == "report(o1)"
+    assert response.scenario.room.title
     assert response.scenario.topic == "phishing"
     assert response.scenario.tenant_id == "acme"
-    assert response.scenario.department == "default"
+    assert response.scenario.max_points == 14
+    assert response.scenario.corpus_build_id == "fx"
+    assert len(response.scenario.fingerprint) == 64
 
     stored = await service.get_scenario(db_session, response.scenario_id, "acme")
-    assert stored.id == response.scenario_id
-    assert stored.topic == "phishing"
+    assert stored.room == response.scenario.room
 
 
 async def test_generate_scenario_captures_rule_snapshot(db_session):
@@ -104,7 +122,20 @@ async def test_generate_scenario_retries_on_invalid_json(db_session):
     response = await service.generate_scenario(db_session, request)
 
     assert len(service.llm_provider.calls) == 2  # initial + one retry
-    assert response.scenario.title
+    assert response.status == "generated"
+
+
+async def test_generate_scenario_falls_back_when_llm_keeps_failing(db_session):
+    [rule] = await _seed_rules(db_session)
+    service = _service(llm=FakeLLMProvider(responses=["bad", "bad", "bad"]))
+    request = GenerateScenarioRequest(tenant_id="acme", rule_id=rule.id)
+
+    response = await service.generate_scenario(db_session, request)
+
+    assert len(service.llm_provider.calls) == 3
+    assert response.status == "fallback"
+    assert response.scenario.room.goal.startswith("report(")
+    assert response.scenario.room.v == 1
 
 
 async def test_generate_all_scenarios_generates_one_per_rule(db_session):
@@ -118,6 +149,18 @@ async def test_generate_all_scenarios_generates_one_per_rule(db_session):
     assert response.total_skipped == 0
     assert response.errors == []
     assert sorted(s.topic for s in response.generated) == ["internet", "phishing"]
+
+
+async def test_batch_does_not_repeat_the_same_room(db_session):
+    await _seed_rules(db_session, topics=("phishing", "phishing"))
+    service = _service()
+    request = BatchGenerateRequest(tenant_id="acme")
+
+    response = await service.generate_all_scenarios(db_session, request)
+
+    fingerprints = {scenario.fingerprint for scenario in response.generated}
+    assert response.total_generated == 2
+    assert len(fingerprints) == 2
 
 
 async def test_generate_all_scenarios_skips_when_no_rules(db_session):
@@ -159,7 +202,6 @@ async def test_generate_all_scenarios_filters_by_department(db_session):
 
     assert response.total_generated == 1
     assert [s.topic for s in response.generated] == ["internet"]
-    assert response.total_skipped == 0
 
 
 async def test_generate_all_scenarios_unknown_department_raises(db_session):
@@ -172,8 +214,9 @@ async def test_generate_all_scenarios_unknown_department_raises(db_session):
 
 
 async def test_generate_all_scenarios_records_errors(db_session):
-    await _seed_rules(db_session, topics=("phishing",))
-    service = _service(llm=FakeLLMProvider(responses=["bad", "bad"]))
+    await _seed_rules(db_session)
+    service = _service()
+    service.room_generator = _BrokenGenerator()
     request = BatchGenerateRequest(tenant_id="acme")
 
     response = await service.generate_all_scenarios(db_session, request)
@@ -188,6 +231,23 @@ async def test_get_scenario_not_found(db_session):
 
     with pytest.raises(ScenarioNotFoundError):
         await service.get_scenario(db_session, "missing")
+
+
+async def test_public_scenario_hides_the_answer_key(db_session):
+    [rule] = await _seed_rules(db_session)
+    service = _service()
+    created = await service.generate_scenario(
+        db_session, GenerateScenarioRequest(tenant_id="acme", rule_id=rule.id)
+    )
+
+    public = await service.get_public_scenario(
+        db_session, created.scenario_id, "acme"
+    )
+
+    payload = public.model_dump()
+    assert "goal" not in payload
+    assert public.title
+    assert public.objs[0].ref == "fx:email:em-0001"
 
 
 async def test_list_and_delete(db_session):

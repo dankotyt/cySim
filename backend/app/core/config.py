@@ -9,6 +9,9 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 # Default tenant id used as a fallback when a request does not specify one.
 DEFAULT_TENANT_ID = "default"
 
+# Placeholder employee identity until auth lands (ADR-0004).
+DEFAULT_EMPLOYEE_ID = "emp-demo"
+
 # Repository root (backend/app/core/config.py -> ... -> <repo>).
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 

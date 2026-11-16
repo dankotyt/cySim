@@ -1,0 +1,311 @@
+{
+  "build_id": "fx",
+  "artifacts": [
+    {
+      "id": "em-0001",
+      "kind": "email",
+      "benign": false,
+      "topics": ["phishing", "email_security", "incident"],
+      "title": "СРОЧНО: сверка за Q3",
+      "summary": "Письмо от «финансового директора» с вложением «Сверка_Q3.xlsm».",
+      "attachments": ["Сверка_Q3.xlsm"],
+      "risk": [
+        {"on": "download", "level": "hard", "pen": 10, "lesson": "L_ATTACH_LNK"},
+        {"on": "reply", "level": "soft", "pen": 2, "lesson": "L_REPLY_TO"}
+      ]
+    },
+    {
+      "id": "em-0002",
+      "kind": "email",
+      "benign": false,
+      "topics": ["phishing", "passwords", "authentication"],
+      "title": "Истекает срок действия пароля",
+      "summary": "Письмо просит ответить на него, указав текущий пароль.",
+      "links": ["s-0001"],
+      "risk": [
+        {"on": "reply", "level": "hard", "pen": 10, "lesson": "L_CRED_REPLY"}
+      ]
+    },
+    {
+      "id": "em-0003",
+      "kind": "email",
+      "benign": false,
+      "topics": ["phishing", "personal_data", "misuse", "training", "other"],
+      "title": "Обновление данных для выплат",
+      "summary": "Кадровая служба просит заполнить анкету с паспортными данными.",
+      "links": ["s-0002"],
+      "attachments": ["Анкета_сотрудника.xlsm"],
+      "risk": [
+        {"on": "download", "level": "hard", "pen": 10, "lesson": "L_ATTACH_LNK"}
+      ]
+    },
+    {
+      "id": "em-0004",
+      "kind": "email",
+      "benign": true,
+      "topics": ["email_security", "training"],
+      "title": "Дайджест ИБ за октябрь",
+      "summary": "Внутренняя рассылка со ссылкой на базу знаний по безопасности.",
+      "links": ["s-0003"]
+    },
+    {
+      "id": "em-0005",
+      "kind": "email",
+      "benign": true,
+      "topics": ["personal_data", "training", "email_security"],
+      "title": "Напоминание о тренинге по персональным данным",
+      "summary": "HR напоминает о сроке прохождения курса; ссылок и вложений нет."
+    },
+    {
+      "id": "em-0006",
+      "kind": "email",
+      "benign": false,
+      "topics": ["access_control", "phishing", "incident"],
+      "title": "Доступ к общему диску истёк",
+      "summary": "Письмо требует подтвердить доступ, ответив на него учётными данными.",
+      "risk": [
+        {"on": "reply", "level": "hard", "pen": 10, "lesson": "L_CRED_REPLY"}
+      ]
+    },
+
+    {
+      "id": "s-0001",
+      "kind": "site",
+      "benign": false,
+      "topics": ["phishing", "passwords", "authentication", "access_control"],
+      "title": "Корпоративный вход",
+      "summary": "Копия страницы входа: домен отличается одной буквой.",
+      "risk": [
+        {"on": "submit", "level": "hard", "pen": 10, "lesson": "L_CRED_FORM"}
+      ]
+    },
+    {
+      "id": "s-0002",
+      "kind": "site",
+      "benign": false,
+      "topics": ["phishing", "misuse", "contractors_security", "management"],
+      "title": "Смена банковских реквизитов",
+      "summary": "Форма подтверждения новых реквизитов поставщика.",
+      "risk": [
+        {"on": "submit", "level": "hard", "pen": 10, "lesson": "L_BANK_CHANGE"}
+      ]
+    },
+    {
+      "id": "s-0003",
+      "kind": "site",
+      "benign": true,
+      "topics": ["internet", "email_security", "other"],
+      "title": "Внутренний портал",
+      "summary": "Новости компании и ссылки на внутренние сервисы."
+    },
+    {
+      "id": "s-0004",
+      "kind": "site",
+      "benign": false,
+      "topics": ["internet", "remote_access", "misuse"],
+      "title": "Установка корневого сертификата",
+      "summary": "Сайт требует скачать и установить сертификат для продолжения работы.",
+      "risk": [
+        {"on": "download", "level": "hard", "pen": 10, "lesson": "L_FAKE_CERT"}
+      ]
+    },
+    {
+      "id": "s-0005",
+      "kind": "site",
+      "benign": true,
+      "topics": ["contractors_security", "management"],
+      "title": "Официальный сайт поставщика",
+      "summary": "Контакты, реквизиты и раздел поддержки."
+    },
+    {
+      "id": "s-0006",
+      "kind": "site",
+      "benign": false,
+      "topics": ["internet", "misuse", "monitoring"],
+      "title": "Проверка браузера",
+      "summary": "Страница предлагает скачать «обновление безопасности».",
+      "risk": [
+        {"on": "download", "level": "hard", "pen": 10, "lesson": "L_FAKE_UPDATE"}
+      ]
+    },
+    {
+      "id": "s-0007",
+      "kind": "site",
+      "benign": false,
+      "topics": ["passwords", "authentication", "remote_access"],
+      "title": "Поддержка: подтвердите код",
+      "summary": "Онлайн-чат просит ввести код из SMS для разблокировки.",
+      "risk": [
+        {"on": "submit", "level": "hard", "pen": 10, "lesson": "L_PHONE_CODE"}
+      ]
+    },
+    {
+      "id": "s-0008",
+      "kind": "site",
+      "benign": true,
+      "topics": ["training", "audit", "internet"],
+      "title": "База знаний по ИБ",
+      "summary": "Статьи и памятки по информационной безопасности."
+    },
+
+    {
+      "id": "p-0001",
+      "kind": "pdf",
+      "benign": false,
+      "topics": ["phishing", "email_security"],
+      "title": "Инструкция по обновлению 1С",
+      "summary": "PDF со встроенным скриптом и ссылкой на «патч».",
+      "risk": [
+        {"on": "open", "level": "hard", "pen": 10, "lesson": "L_MACRO_PDF"},
+        {"on": "download", "level": "soft", "pen": 2, "lesson": "L_MACRO_PDF"}
+      ]
+    },
+    {
+      "id": "p-0002",
+      "kind": "pdf",
+      "benign": true,
+      "topics": ["training", "audit"],
+      "title": "Политика информационной безопасности",
+      "summary": "Утверждённая политика компании в формате PDF."
+    },
+    {
+      "id": "p-0003",
+      "kind": "pdf",
+      "benign": false,
+      "topics": ["personal_data", "misuse", "audit"],
+      "title": "Список сотрудников для проверки",
+      "summary": "Файл с персональными данными, разосланный без защиты.",
+      "risk": [
+        {"on": "download", "level": "hard", "pen": 10, "lesson": "L_DATA_LIST"}
+      ]
+    },
+    {
+      "id": "p-0004",
+      "kind": "pdf",
+      "benign": true,
+      "topics": ["backup", "monitoring", "other"],
+      "title": "График резервного копирования",
+      "summary": "Внутренний регламент резервного копирования."
+    },
+    {
+      "id": "p-0005",
+      "kind": "pdf",
+      "benign": false,
+      "topics": ["phishing", "management"],
+      "title": "Счёт на оплату №4471",
+      "summary": "Счёт с изменёнными банковскими реквизитами.",
+      "risk": [
+        {"on": "open", "level": "hard", "pen": 10, "lesson": "L_BANK_CHANGE"}
+      ]
+    },
+
+    {
+      "id": "u-0001",
+      "kind": "usb",
+      "benign": false,
+      "topics": ["physical_security", "misuse"],
+      "title": "Найденная флешка «Зарплаты»",
+      "summary": "Безымянный носитель с файлом «зарплаты.xlsx.exe».",
+      "risk": [
+        {"on": "connect", "level": "hard", "pen": 10, "lesson": "L_USB_FOUND"}
+      ]
+    },
+    {
+      "id": "u-0002",
+      "kind": "usb",
+      "benign": true,
+      "topics": ["physical_security", "training"],
+      "title": "Корпоративный установщик",
+      "summary": "Носитель ИТ-отдела с подписанным установщиком."
+    },
+    {
+      "id": "u-0003",
+      "kind": "usb",
+      "benign": false,
+      "topics": ["backup", "physical_security"],
+      "title": "Носитель «backup_2026»",
+      "summary": "Флешка с autorun и архивом базы.",
+      "risk": [
+        {"on": "connect", "level": "hard", "pen": 10, "lesson": "L_USB_AUTORUN"}
+      ]
+    },
+    {
+      "id": "u-0004",
+      "kind": "usb",
+      "benign": true,
+      "topics": ["physical_security", "contractors_security"],
+      "title": "Презентация с конференции",
+      "summary": "Носитель с PDF-презентацией от партнёра."
+    },
+    {
+      "id": "u-0005",
+      "kind": "usb",
+      "benign": false,
+      "topics": ["physical_security", "incident"],
+      "title": "Флешка «ИТ-отдел: драйверы»",
+      "summary": "Носитель с набором драйверов неизвестного происхождения.",
+      "risk": [
+        {"on": "connect", "level": "hard", "pen": 10, "lesson": "L_USB_FOUND"}
+      ]
+    },
+
+    {
+      "id": "c-0001",
+      "kind": "call",
+      "benign": false,
+      "topics": ["passwords", "authentication", "incident"],
+      "title": "Звонок из «службы безопасности»",
+      "summary": "Звонящий просит код подтверждения для «проверки учётной записи».",
+      "risk": [
+        {"on": "speak", "level": "hard", "pen": 10, "lesson": "L_PHONE_CODE"}
+      ]
+    },
+    {
+      "id": "c-0002",
+      "kind": "call",
+      "benign": true,
+      "topics": ["monitoring", "incident"],
+      "title": "Обратный звонок по заявке",
+      "summary": "Поддержка уточняет детали тикета, код не запрашивает."
+    },
+    {
+      "id": "c-0003",
+      "kind": "call",
+      "benign": false,
+      "topics": ["contractors_security", "management"],
+      "title": "Звонок «из бухгалтерии»",
+      "summary": "Просят подтвердить реквизиты и код из SMS.",
+      "risk": [
+        {"on": "speak", "level": "hard", "pen": 10, "lesson": "L_PHONE_CODE"}
+      ]
+    },
+    {
+      "id": "c-0004",
+      "kind": "call",
+      "benign": true,
+      "topics": ["physical_security", "other"],
+      "title": "Звонок курьера",
+      "summary": "Курьер уточняет адрес доставки."
+    },
+    {
+      "id": "c-0005",
+      "kind": "call",
+      "benign": false,
+      "topics": ["remote_access", "misuse"],
+      "title": "Звонок «из ИТ»",
+      "summary": "Просят установить программу удалённого доступа и назвать код.",
+      "links": ["s-0006"],
+      "risk": [
+        {"on": "speak", "level": "hard", "pen": 10, "lesson": "L_REMOTE_TOOL"}
+      ]
+    },
+    {
+      "id": "c-0006",
+      "kind": "call",
+      "benign": true,
+      "topics": ["training", "personal_data"],
+      "title": "Опрос HR",
+      "summary": "HR проводит опрос об обучении, данные карт не запрашивает."
+    }
+  ]
+}

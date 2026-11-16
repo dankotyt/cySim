@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.v1.attempts import router as attempts_router
 from app.api.v1.documents import router as documents_router
 from app.api.v1.rules import router as rules_router
 from app.api.v1.scenarios import router as scenarios_router
@@ -17,6 +18,8 @@ from app.services.document_service import (
     ProcessingError,
 )
 from app.services.scenario_service import (
+    AttemptClosedError,
+    AttemptNotFoundError,
     DepartmentNotFoundError,
     NoRulesFoundError,
     RuleNotFoundError,
@@ -58,6 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(documents_router)
     app.include_router(rules_router)
     app.include_router(scenarios_router)
+    app.include_router(attempts_router)
 
     @app.exception_handler(NoRulesFoundError)
     async def handle_no_rules(request: Request, exc: NoRulesFoundError) -> JSONResponse:
@@ -80,6 +84,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request, exc: ScenarioNotFoundError
     ) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(AttemptNotFoundError)
+    async def handle_attempt_not_found(
+        request: Request, exc: AttemptNotFoundError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(AttemptClosedError)
+    async def handle_attempt_closed(
+        request: Request, exc: AttemptClosedError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @app.exception_handler(ScenarioGenerationError)
     async def handle_scenario_generation(
