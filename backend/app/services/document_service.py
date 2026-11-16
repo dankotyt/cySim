@@ -20,6 +20,7 @@ from ..models.document import (
     UploadResponse,
 )
 from ..repositories.document_repository import DocumentRepository
+from ..repositories.scenario_repository import ScenarioRepository
 from ..repositories.security_rule_repository import SecurityRuleRepository
 from ..utils.chunking import chunk_document
 from ..utils.parsers import ParsedDocument, parse_file
@@ -51,12 +52,14 @@ class DocumentService:
         validator: DocumentValidator | None = None,
         security_rule_repository: SecurityRuleRepository | None = None,
         rule_structurer: LoRARuleStructurer | None = None,
+        scenario_repository: ScenarioRepository | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.repository = DocumentRepository()
         self.security_rule_repository = (
             security_rule_repository or SecurityRuleRepository()
         )
+        self.scenario_repository = scenario_repository or ScenarioRepository()
         self.validator = validator or DocumentValidator(self.settings)
         self.rule_structurer = rule_structurer or self._build_structurer()
 
@@ -118,12 +121,17 @@ class DocumentService:
             result = await self.rule_structurer.structure(chunks, tenant_id, document_id)
             logger.info(f"LLM structuring done: {len(result.rules)} rules")
 
-            await self.security_rule_repository.create_many(
+            created = await self.security_rule_repository.create_many(
                 session, tenant_id, result.rules
             )
+            skipped = len(result.rules) - len(created)
+            if skipped:
+                logger.info(
+                    "Deduplicated %d rule(s) for document_id=%s", skipped, document_id
+                )
 
             document.status = DocumentStatus.PROCESSED
-            document.rule_count = len(result.rules)
+            document.rule_count = len(created)
             await self.repository.update(session, document)
             await session.commit()
 
@@ -155,10 +163,25 @@ class DocumentService:
     async def delete_document(
         self, session: AsyncSession, document_id: str, tenant_id: str
     ) -> DeleteResponse:
-        """Delete a document's metadata; its rules are removed via FK cascade."""
+        """Soft-delete a document, its rules and their scenarios.
+
+        Rows stay in the database so that analytics and the employee's training
+        history remain intact; normal queries hide them.
+        """
         await self._require_document(session, document_id, tenant_id)
+
+        rule_ids = await self.security_rule_repository.delete_by_document(
+            session, document_id
+        )
+        await self.scenario_repository.soft_delete_by_rule_ids(session, rule_ids)
         await self.repository.delete(session, document_id)
-        logger.info("Document deleted: id=%s tenant=%s", document_id, tenant_id)
+
+        logger.info(
+            "Document soft-deleted: id=%s tenant=%s rules=%d",
+            document_id,
+            tenant_id,
+            len(rule_ids),
+        )
         return DeleteResponse(document_id=document_id, deleted=True)
 
 

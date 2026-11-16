@@ -12,6 +12,7 @@ from ..models.scenario import (
     BatchGenerateResponse,
     GenerateScenarioRequest,
     GenerateScenarioResponse,
+    RuleSnapshot,
     Scenario,
 )
 from ..repositories.department_repository import (
@@ -253,6 +254,17 @@ class ScenarioService:
                     f"LLM returned invalid scenario JSON after retry: {second_error}"
                 ) from second_error
 
+    @staticmethod
+    def _rule_snapshot(rule: SecurityRule) -> RuleSnapshot:
+        """Capture the rule text so later edits/deletions cannot rewrite history."""
+        return RuleSnapshot(
+            id=rule.id,
+            description=rule.description,
+            topic=rule.topic,
+            audience=list(rule.audience),
+            document_id=rule.document_id,
+        )
+
     def _scenario_from_raw(
         self,
         raw: str,
@@ -281,15 +293,22 @@ class ScenarioService:
                 topic=rule.topic,
                 department=department,
                 rule_id=rule.id,
+                rule_snapshot=self._rule_snapshot(rule),
                 **fields,
             )
         except ValidationError as exc:
             raise ValueError(f"LLM JSON failed validation: {exc}") from exc
 
     async def get_scenario(
-        self, session: AsyncSession, scenario_id: str, tenant_id: str | None = None
+        self,
+        session: AsyncSession,
+        scenario_id: str,
+        tenant_id: str | None = None,
+        include_deleted: bool = False,
     ) -> Scenario:
-        scenario = await self.repository.get(session, scenario_id)
+        scenario = await self.repository.get(
+            session, scenario_id, include_deleted=include_deleted
+        )
         if scenario is None or (
             tenant_id is not None and scenario.tenant_id != tenant_id
         ):
@@ -297,14 +316,24 @@ class ScenarioService:
         return scenario
 
     async def list_scenarios(
-        self, session: AsyncSession, tenant_id: str | None = None
+        self,
+        session: AsyncSession,
+        tenant_id: str | None = None,
+        include_deleted: bool = False,
     ) -> list[Scenario]:
-        return await self.repository.list_scenarios(session, tenant_id)
+        return await self.repository.list_scenarios(
+            session, tenant_id, include_deleted=include_deleted
+        )
 
     async def list_scenarios_by_rule(
-        self, session: AsyncSession, rule_id: str
+        self,
+        session: AsyncSession,
+        rule_id: str,
+        include_deleted: bool = False,
     ) -> list[Scenario]:
-        return await self.repository.list_by_rule(session, rule_id)
+        return await self.repository.list_by_rule(
+            session, rule_id, include_deleted=include_deleted
+        )
 
     async def delete_scenario(self, session: AsyncSession, scenario_id: str) -> None:
         if not await self.repository.delete(session, scenario_id):

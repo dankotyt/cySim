@@ -37,6 +37,7 @@ class DocumentORM(Base):
     __table_args__ = (
         Index("idx_documents_tenant_id", "tenant_id"),
         Index("idx_documents_status", "status"),
+        Index("idx_documents_tenant_deleted", "tenant_id", "deleted_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -49,6 +50,9 @@ class DocumentORM(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class SecurityRuleORM(Base):
@@ -58,6 +62,8 @@ class SecurityRuleORM(Base):
     __table_args__ = (
         Index("idx_security_rules_tenant_id", "tenant_id"),
         Index("idx_security_rules_document_id", "document_id"),
+        Index("idx_security_rules_tenant_content_hash", "tenant_id", "content_hash"),
+        Index("idx_security_rules_tenant_deleted", "tenant_id", "deleted_at"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
@@ -68,8 +74,12 @@ class SecurityRuleORM(Base):
     description: Mapped[str] = mapped_column(Text)
     topic: Mapped[str] = mapped_column(String(64), nullable=False)
     audience: Mapped[list] = mapped_column(JSON, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 
@@ -97,6 +107,9 @@ class ScenarioORM(Base):
     """Training scenario generated from security rules."""
 
     __tablename__ = "scenarios"
+    __table_args__ = (
+        Index("idx_scenarios_tenant_deleted", "tenant_id", "deleted_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     tenant_id: Mapped[str] = mapped_column(String(255), index=True)
@@ -113,6 +126,7 @@ class ScenarioORM(Base):
     actions: Mapped[list] = mapped_column(JSON, nullable=False)
     feedback: Mapped[str] = mapped_column(Text, nullable=False)
     scoring: Mapped[dict] = mapped_column(JSON, nullable=False)
+    rule_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     department: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="draft")
     created_at: Mapped[datetime] = mapped_column(
@@ -120,4 +134,7 @@ class ScenarioORM(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )

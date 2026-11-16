@@ -9,6 +9,7 @@ from app.models.scenario import (
     GenerateScenarioResponse,
 )
 from app.repositories.department_repository import DepartmentRepository
+from app.repositories.scenario_repository import ScenarioRepository
 from app.repositories.security_rule_repository import SecurityRuleRepository
 from app.services.scenario_service import (
     DepartmentNotFoundError,
@@ -32,8 +33,7 @@ def _rule(**overrides):
 
 async def _seed_rules(session, tenant_id="acme", topics=("phishing",)):
     rules = [_rule(topic=topic) for topic in topics]
-    await SecurityRuleRepository().create_many(session, tenant_id, rules)
-    return rules
+    return await SecurityRuleRepository().create_many(session, tenant_id, rules)
 
 
 def _service(llm=None):
@@ -61,6 +61,22 @@ async def test_generate_scenario_persists_and_returns(db_session):
     stored = await service.get_scenario(db_session, response.scenario_id, "acme")
     assert stored.id == response.scenario_id
     assert stored.topic == "phishing"
+
+
+async def test_generate_scenario_captures_rule_snapshot(db_session):
+    [rule] = await _seed_rules(db_session)
+    service = _service()
+    request = GenerateScenarioRequest(tenant_id="acme", rule_id=rule.id)
+
+    response = await service.generate_scenario(db_session, request)
+
+    snapshot = response.scenario.rule_snapshot
+    assert snapshot is not None
+    assert snapshot.id == rule.id
+    assert snapshot.description == rule.description
+    assert snapshot.topic == rule.topic
+    assert snapshot.audience == ["general"]
+    assert snapshot.document_id == "doc-1"
 
 
 async def test_generate_scenario_unknown_rule_raises(db_session):
@@ -114,6 +130,7 @@ async def test_generate_all_scenarios_skips_when_no_rules(db_session):
     assert response.total_skipped == 1
     assert response.skipped == ["all"]
     assert response.errors == []
+    assert service.llm_provider.calls == []
 
 
 async def test_generate_all_scenarios_topic_filter(db_session):
@@ -183,3 +200,27 @@ async def test_list_and_delete(db_session):
 
     await service.delete_scenario(db_session, created.scenario_id)
     assert await service.list_scenarios(db_session, "acme") == []
+
+    history = await service.list_scenarios(db_session, "acme", include_deleted=True)
+    assert [scenario.id for scenario in history] == [created.scenario_id]
+
+
+async def test_soft_deleted_rule_hides_scenarios_but_keeps_history(db_session):
+    [rule] = await _seed_rules(db_session)
+    service = _service()
+    request = GenerateScenarioRequest(tenant_id="acme", rule_id=rule.id)
+    created = await service.generate_scenario(db_session, request)
+
+    await SecurityRuleRepository().delete(db_session, rule.id)
+    await ScenarioRepository().soft_delete_by_rule_ids(db_session, [rule.id])
+
+    with pytest.raises(RuleNotFoundError):
+        await service.generate_scenario(db_session, request)
+    with pytest.raises(ScenarioNotFoundError):
+        await service.get_scenario(db_session, created.scenario_id, "acme")
+
+    assert await service.list_scenarios(db_session, "acme") == []
+    history = await service.list_scenarios(db_session, "acme", include_deleted=True)
+    assert [scenario.id for scenario in history] == [created.scenario_id]
+    assert history[0].rule_snapshot is not None
+    assert history[0].rule_snapshot.description == rule.description

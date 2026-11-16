@@ -38,12 +38,28 @@ class ScenarioScoring(BaseModel):
     passing_score: int
 
 
+class RuleSnapshot(BaseModel):
+    """Immutable copy of the rule a scenario was generated from.
+
+    Stored with the scenario so that editing or deleting the source rule (or
+    its document) never changes the text a trainee was trained on. Rules are
+    not versioned: re-uploading a document creates a new rule with a new id,
+    so ``id`` + ``document_id`` already identify the original unambiguously.
+    """
+
+    id: str
+    description: str
+    topic: str
+    audience: list[str] = Field(default_factory=list)
+    document_id: str
+
+
 class Scenario(BaseModel):
     """A fully generated training scenario."""
 
     id: str
     tenant_id: str
-    rule_id: str
+    rule_id: str | None = None
     title: str
     topic: str
     step_type: ScenarioStepType
@@ -52,6 +68,7 @@ class Scenario(BaseModel):
     feedback: str
     scoring: ScenarioScoring
     department: str = "default"
+    rule_snapshot: RuleSnapshot | None = None
     created_at: datetime = Field(default_factory=_utcnow)
 
 

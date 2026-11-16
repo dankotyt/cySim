@@ -3,8 +3,9 @@ import uuid
 from datetime import datetime, timezone
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from ..core.rule_text import rule_content_hash
 from ..core.topics import ALLOWED_TOPICS
 
 
@@ -75,6 +76,7 @@ class SecurityRule(BaseModel):
     topic: str
     audience: list[str] = Field(default_factory=list)
     document_id: str
+    content_hash: str = ""
     created_at: datetime = Field(default_factory=_utcnow)
 
     @field_validator("topic")
@@ -86,6 +88,13 @@ class SecurityRule(BaseModel):
                 f"Invalid topic {value!r}; allowed: {ALLOWED_TOPICS}"
             )
         return value
+
+    @model_validator(mode="after")
+    def _ensure_content_hash(self) -> "SecurityRule":
+        """Fill the de-duplication hash when it is not supplied."""
+        if not self.content_hash:
+            self.content_hash = rule_content_hash(self.topic, self.description)
+        return self
 
 
 class DeleteResponse(BaseModel):
