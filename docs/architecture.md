@@ -82,8 +82,8 @@ Backend — модульный монолит: API → сервисы → реп
 3. `parse_file` и `chunk_document` выполняются в `asyncio.to_thread`; текст и чанки **в памяти**.
 4. `DocumentValidator`: MIME, объём, `min_document_chars`, `min_document_chunks`.
 5. `LoRARuleStructurer.structure(chunks, tenant_id, document_id)` — почанковый вызов LLM; ответ формата `audience=<код> | topic=<код> | <правило>` парсится и валидируется по `ALLOWED_TOPICS` / `VALID_AUDIENCES`.
-6. `security_rules.create_many` → правила с `document_id`.
-7. `documents.status=processed`, `rule_count=N`; при исключении — `status=failed`, ошибка пробрасывается как `ProcessingError`.
+6. `security_rules.create_many` → правила с `document_id`; дубликаты по `(topic, нормализованный текст)` в рамках тенанта пропускаются.
+7. `documents.status=processed`, `rule_count` = число реально вставленных правил; при исключении — `status=failed`, ошибка пробрасывается как `ProcessingError`.
 
 Содержимое и чанки в БД **не сохраняются**.
 
@@ -93,7 +93,7 @@ Backend — модульный монолит: API → сервисы → реп
 2. Отдел → `allowed_topics`; правила фильтруются по `tenant_id`, затем по `topic` и allowlist отдела.
 3. `build_scenario_context` + `build_scenario_prompt` → `get_llm_provider(settings).generate(...)`.
 4. `_generate_with_retry`: одна повторная попытка при невалидном JSON.
-5. `_scenario_from_raw` собирает плоский `Scenario`: `title/topic/step_type/content/actions/feedback/scoring`; репозиторий сохраняет его со `status="generated"`.
+5. `_scenario_from_raw` собирает плоский `Scenario`: `title/topic/step_type/content/actions/feedback/scoring` + `rule_snapshot` (id, текст, тема, аудитория, документ); репозиторий сохраняет его со `status="generated"`.
 6. Пачка: по правилу — `session.begin_nested()`, ошибки складываются в `errors[]` и не роняют остальные.
 
 Текущий сценарий — **один decision point** (`step_type` ∈ `email_view | phone_call | usb_insert | web_page | search_result`).
@@ -113,15 +113,15 @@ Backend — модульный монолит: API → сервисы → реп
 
 | Таблица | Ключевые поля | Связи |
 |---|---|---|
-| `documents` | `id`, `tenant_id`, `name`, `content_hash`, `size_bytes`, `rule_count`, `status`, `created_at` | — |
-| `security_rules` | `id`, `tenant_id`, `document_id`, `description`, `topic`, `audience` (JSON), `created_at` | `document_id → documents.id ON DELETE CASCADE` |
+| `documents` | `id`, `tenant_id`, `name`, `content_hash`, `size_bytes`, `rule_count`, `status`, `created_at`, `deleted_at` | — |
+| `security_rules` | `id`, `tenant_id`, `document_id`, `description`, `topic`, `audience` (JSON), `content_hash`, `created_at`, `deleted_at` | `document_id → documents.id ON DELETE CASCADE` |
 | `departments` | `id`, `tenant_id`, `name`, `allowed_topics` (JSON), `created_at` | `UNIQUE(tenant_id, name)` |
-| `scenarios` | `id`, `tenant_id`, `rule_id`, `title`, `topic`, `step_type`, `content`, `actions` (JSON), `feedback`, `scoring` (JSON), `department`, `status`, `created_at/updated_at` | `rule_id → security_rules.id ON DELETE CASCADE` (nullable) |
+| `scenarios` | `id`, `tenant_id`, `rule_id`, `title`, `topic`, `step_type`, `content`, `actions` (JSON), `feedback`, `scoring` (JSON), `rule_snapshot` (JSON), `department`, `status`, `created_at/updated_at`, `deleted_at` | `rule_id → security_rules.id ON DELETE CASCADE` (nullable) |
 
-- Индексы: `documents(tenant_id, status)`, `security_rules(tenant_id, document_id)`, `departments(tenant_id)`, `scenarios(tenant_id, rule_id, status, topic)`.
-- Миграции: `0001`…`0012` (head — `0012_scenario_topic_remove_context`). `init.sql` дублирует DDL для первого старта контейнера и должен совпадать с ORM.
+- Индексы: `documents(tenant_id, status, deleted_at)`, `security_rules(tenant_id, document_id, content_hash, deleted_at)`, `departments(tenant_id)`, `scenarios(tenant_id, rule_id, status, topic, deleted_at)`.
+- Миграции: `0001`…`0013` (head — `0013_rule_snapshot_soft_delete_dedup`). `init.sql` дублирует DDL для первого старта контейнера и должен совпадать с ORM.
 - Векторного стора и `pg_trgm` нет: поиск по чанкам удалён вместе с хранением чанков.
-- `scenarios.rule_id ON DELETE CASCADE` — известный риск потери истории (см. §11).
+- Удаление мягкое: `deleted_at` у документов, правил и сценариев; строки остаются для аналитики и истории сотрудника. Нормальные запросы фильтруют `deleted_at IS NULL`, аналитика использует `include_deleted=True`.
 
 ## 6. LLM-контур
 
@@ -152,15 +152,15 @@ Docker Compose (`docker-compose.yaml`, корень):
 | `GET` | `/health` | Liveness |
 | `POST` | `/api/v1/documents/upload` | Загрузка и обработка документа (201) |
 | `GET` | `/api/v1/documents/{id}` | Метаданные документа |
-| `DELETE` | `/api/v1/documents/{id}` | Удаление документа (каскадом — правила и сценарии) |
-| `GET` | `/api/v1/rules` | Список правил тенанта |
+| `DELETE` | `/api/v1/documents/{id}` | Мягкое удаление документа, его правил и сценариев |
+| `GET` | `/api/v1/rules` | Список правил тенанта (`topic`, `document_id`, `limit`, `offset`) |
 | `GET` | `/api/v1/rules/{id}` | Правило |
-| `DELETE` | `/api/v1/rules/{id}` | Удаление правила (каскадом — сценарии) |
+| `DELETE` | `/api/v1/rules/{id}` | Мягкое удаление правила и его сценариев |
 | `POST` | `/api/v1/scenarios/generate` | Сценарий по одному правилу (201) |
 | `POST` | `/api/v1/scenarios/generate-all` | Пачка по правилам отдела (201) |
 | `GET` | `/api/v1/scenarios` | Список сценариев |
 | `GET` | `/api/v1/scenarios/{id}` | Сценарий (сейчас отдаёт `is_correct` и `points` — см. §11) |
-| `DELETE` | `/api/v1/scenarios/{id}` | Удаление |
+| `DELETE` | `/api/v1/scenarios/{id}` | Мягкое удаление сценария |
 
 ## 8. Конфигурация и окружение
 
@@ -170,7 +170,7 @@ Docker Compose (`docker-compose.yaml`, корень):
 
 ## 9. Тесты и CI
 
-Тесты: `tests/conftest.py` (SQLite + `Settings()`), `fakes.py` (`FakeLLMProvider`), сервисы/репозитории/парсеры — `test_scenario_service`, `test_security_rule_repository`, `test_department_repository`, `test_scenario_context`, `test_scenario_prompts`, `test_session_manager`, `test_chunking`, `test_parsers`, `test_ocr`, `test_text_repair`, `test_validator`.
+Тесты: `tests/conftest.py` (SQLite + `Settings()`), `fakes.py` (`FakeLLMProvider`), сервисы/репозитории/парсеры — `test_scenario_service`, `test_security_rule_repository`, `test_department_repository`, `test_scenario_context`, `test_scenario_prompts`, `test_session_manager`, `test_chunking`, `test_parsers`, `test_ocr`, `test_text_repair`, `test_validator`, `test_soft_delete`.
 
 CI (`.github/workflows/ci.yml`, ADR-0006): `lint` (ruff, узкий набор правил), `test` (pytest), `compose` (валидация трёх профилей), `migrations` (ровно одна head), `docker` (сборка образа без push). CD нет.
 
@@ -185,9 +185,9 @@ CI (`.github/workflows/ci.yml`, ADR-0006): `lint` (ruff, узкий набор �
 | 1 | `scenarios` — плоский одношаговый формат, ADR-0007 требует «комнату» | миграция и новый движок |
 | 2 | `GET /scenarios/{id}` отдаёт `is_correct` и `points` | ответ читается в DevTools (ADR-0007 §public) |
 | 3 | `tenant_id` из запроса, нет auth | IDOR между арендаторами (ADR-0004) |
-| 4 | `rule_id ON DELETE CASCADE` | удаление документа уничтожает историю обучения |
-| 5 | `CORS allow_origins=["*"]` | несовместимо с cookie-сессиями и production |
-| 6 | `init.sql` и ORM поддерживаются вручную | риск расхождения DDL |
+| 4 | `CORS allow_origins=["*"]` | несовместимо с cookie-сессиями и production |
+| 5 | `init.sql` и ORM поддерживаются вручную | риск расхождения DDL |
+| 6 | Soft delete без restore-эндпоинта | восстановление только SQL (осознанно отложено) |
 
 ## 12. Ссылки
 
