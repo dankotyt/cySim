@@ -58,8 +58,8 @@ cd backend && ..\.venv\Scripts\python.exe -c "from alembic.config import Config;
 ## Следующий шаг (не входит в M0)
 
 1. Разовая чистка и расширение правил ruff до `["E4", "E7", "E9", "F", "I", "UP", "B"]`, затем `ruff check backend --fix` и отдельный коммит.
-2. Job `frontend` (npm ci, tsc, vitest) — на вехе M4, когда появится `frontend/package.json`.
-3. Job `corpus` (сборка `corpus/dist` + тесты консистентности) — на вехе M5.
+2. Job `frontend` (npm ci, tsc, vitest) — на вехе M5, когда появится `frontend/package.json`.
+3. Job `corpus` (сборка `corpus/dist` + тесты консистентности) — на вехе M6.
 4. E2E smoke (Playwright) против `docker compose` — после сценария «правило → сценарий → шаг → ответ → балл».
 
 ## Почему нет CD
