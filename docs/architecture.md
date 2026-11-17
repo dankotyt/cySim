@@ -2,7 +2,7 @@
 
 Документ фиксирует **текущее состояние** (as-is) и целевые решения, принятые в ADR. Если код и ADR расходятся — это технический долг, он перечислен в §11.
 
-Дата обновления: 2026-11-16.
+Дата обновления: 2026-11-17.
 
 ## 1. Что реализовано сейчас
 
@@ -50,6 +50,7 @@ Backend — модульный монолит: API → сервисы → реп
 | `api/v1/attempts.py` | `GET` (список), `GET /{id}`, `POST /{id}/events` |
 | `core/config.py` | `Settings` (pydantic-settings), `.env` в корне репозитория, `DEFAULT_TENANT_ID`, `DEFAULT_EMPLOYEE_ID` |
 | `core/topics.py` | Единый словарь `ALLOWED_TOPICS` (18 тем) |
+| `core/intents.py` | Словарь интентов комнаты: каналы и действия по умолчанию; правильное действие объявляет артефакт |
 | `core/database.py` | Async engine и фабрика сессий (asyncpg) |
 | `core/logging.py` | Централизованная настройка логов |
 | `core/rule_text.py` | Нормализация текста правила и `content_hash` |
@@ -66,7 +67,7 @@ Backend — модульный монолит: API → сервисы → реп
 | `services/document_validator.py` | MIME (libmagic), расширение, объём, минимум текста/чанков |
 | `services/rule_structuring/` | LoRA-структурирование: `vocab`, `prompts`, `filters`, `structurer` |
 | `services/scenario_context.py` | `SecurityRule` → текстовый блок промпта |
-| `services/scenario_generation/` | `goals` (грамматика цели), `registry` (fixture-артефакты и уроки), `planner`, `prompts`, `pipeline`, `validators` (L0–L3), `scoring` (движок событий), `dedup` |
+| `services/scenario_generation/` | `intents` (каталог), `classifier` (правило → интент), `goals`, `registry` (fixture-артефакты), `planner`, `prompts`, `pipeline`, `validators` (L0–L3), `scoring` (движок событий), `dedup` |
 | `services/scenario_service.py` | Генерация комнат, CRUD, попытки, публичные DTO |
 | `services/llm_provider.py` | `LLMProvider`, `OpenAICompatibleProvider`, `VLLMProvider`, фабрика |
 | `services/session_manager.py` | Бюджет контекста LLM-сессии (anchor + сброс) |
@@ -95,12 +96,13 @@ Backend — модульный монолит: API → сервисы → реп
 
 1. `POST /generate` (одно правило) или `/generate-all` (пачка).
 2. Отдел → `allowed_topics`; правила фильтруются по `tenant_id`, затем по `topic` и allowlist отдела.
-3. `room_generator.generate(...)`: планнер выбирает до 12 fixture-артефактов, привязанных к теме правила (9 опасных + 3 легитимных), детерминированно по `tenant_id/rule_id/попытка`.
-4. `build_room_prompt` → LLM; системные поля (`topic`, `v`) добавляются после разбора JSON, лишние поля отбрасываются.
-5. `validate_room` (L0–L3): схема и `v == 1`; `ref`/`kind`/`via`/глаголы/уроки; grounding по теме правила; цель не выполнена на старте, требует `report` опасного объекта, не заблокирована `hard`-ловушкой.
-6. `room_fingerprint = sha256(topic + goal + refs)`; совпадение с комнатой тенанта — повод для повтора. Не более 3 попыток, затем детерминированная fallback-комната (без LLM).
-7. `_generate_for_rule` собирает `Scenario` (`room`, `max_points = 10 + 2×diff`, `fingerprint`, `corpus_build_id`, `rule_snapshot`) и сохраняет со `status="generated"`.
-8. Пачка: по правилу — `session.begin_nested()`, ошибки складываются в `errors[]` и не роняют остальные; fingerprint пополняется по ходу пачки.
+3. `_resolve_intent`: правило классифицируется по тексту в интент (`unattended_session`, `phishing_email`, ...) и кэшируется в `security_rules.intent`; тот же шаг возвращает исправленную `topic` из `ALLOWED_TOPICS` (значение LoRA — черновик). `not_representable` — правило пропускается. Значение темы в поле `intent` не принимается: после одного корректирующего повтора правило уходит в `skipped_details` с причиной `invalid_intent` (или `invalid_json`). Если в БД уже лежит закэшированное значение вне `INTENTS`, оно переклассифицируется, а не используется как интент.
+4. `room_generator.generate(...)`: планнер выбирает до 10 артефактов этого интента (8 нужной полярности + 2 дистрактора; в легитимной комнате дистракторы тоже легитимные, иначе L3 отклоняет комнату), детерминированно по `tenant/rule/intent/полярность/попытка`.
+5. `build_room_prompt` → LLM; в каталоге показан `goal_actions` каждого артефакта; системные поля (`topic`, `intent`, `v`) добавляются после разбора JSON, лишние поля отбрасываются; few-shot строится из `summary` реального объекта, а brief — из наблюдаемой ситуации. В промпт повтора попадают ошибки L0–L3 и компактное описание отклонённой комнаты, а объекты отклонённой комнаты исключаются из каталога; после второго структурного дубликата генерация сразу уходит в fallback.
+6. `validate_room` (L0–L3): схема и `v == 1`; `ref`/`kind`/`via`/глаголы/уроки; grounding по интенту; `brief` проверяется только по схеме и длине, содержательные требования — в промпте (ADR-0010); цель содержит действие, объявленное артефактом (`goal_actions`) или дефолтом интента, и не заблокирована `hard`-ловушкой.
+7. `room_fingerprint = sha256(intent + goal + refs)`; совпадение с комнатой тенанта — повод для повтора. Не более 3 попыток (2 на дубликаты), затем детерминированная fallback-комната нужной полярности (без LLM).
+8. `_generate_for_rule` собирает `Scenario` (`room`, `max_points = 10 + 2×diff`, `fingerprint`, `corpus_build_id`, `rule_snapshot`) и сохраняет со `status="generated"`.
+9. Пачка: `rooms_per_rule` комнат на правило и `benign_ratio` (по умолчанию 0.2) — benign-слоты распределяются детерминированно по хэшу `(rule_id, room_index)`; слоты без артефакта нужной полярности попадают в `skipped_details`.
 
 Полный контракт и инварианты — ADR-0008. Поведение (`risk[]`, `benign`) живёт в метаданных артефакта, а не в комнате.
 
@@ -108,7 +110,7 @@ Backend — модульный монолит: API → сервисы → реп
 
 1. `POST /scenarios/{id}/attempts` → `scenario_attempts` с пустой лентой, `outcome=in_progress`.
 2. `POST /attempts/{id}/events` с `{verb, obj}`: событие добавляется в ленту, движок пересчитывает попытку с нуля по всему журналу (идемпотентно, без скрытого состояния).
-3. Движок: `hard`-риск → `compromised` (счёт ≤ 30% `max`), цель достигнута → `safe`/`recovered`, иначе `in_progress`. `blind` (−2) — если цель достигнута без `inspect`. Повторные `(verb, obj)` штрафуются один раз; после закрытия комнаты события не принимаются (`409`).
+3. Движок: `hard`-риск → `failed` (счёт 1, комната закрыта), цель достигнута → `safe`/`recovered`, иначе `in_progress`. `blind` (−2) — если цель достигнута без `inspect` и действия шли серией: ≥3 действий с интервалом ≤2 с; осмысленный первый ответ не штрафуется. Повторные `(verb, obj)` штрафуются один раз; после закрытия комнаты события не принимаются (`409`).
 4. Ответ — `AttemptState`: исход, счёт, `blind`, мини-уроки (`lessons`) и лента с уровнем/штрафом. `goal`, `benign` и `risk[]` в ответ не попадают.
 
 ## 5. Данные
@@ -116,14 +118,14 @@ Backend — модульный монолит: API → сервисы → реп
 | Таблица | Ключевые поля | Связи |
 |---|---|---|
 | `documents` | `id`, `tenant_id`, `name`, `content_hash`, `size_bytes`, `rule_count`, `status`, `created_at`, `deleted_at` | — |
-| `security_rules` | `id`, `tenant_id`, `document_id`, `description`, `topic`, `audience` (JSON), `content_hash`, `created_at`, `deleted_at` | `document_id → documents.id ON DELETE CASCADE` |
+| `security_rules` | `id`, `tenant_id`, `document_id`, `description`, `topic`, `intent`, `audience` (JSON), `content_hash`, `created_at`, `deleted_at` | `document_id → documents.id ON DELETE CASCADE` |
 | `departments` | `id`, `tenant_id`, `name`, `allowed_topics` (JSON), `created_at` | `UNIQUE(tenant_id, name)` |
 | `scenarios` | `id`, `tenant_id`, `title`, `topic`, `room` (JSON), `max_points`, `diff`, `fingerprint`, `corpus_build_id`, `rule_snapshot` (JSON), `department`, `status`, `created_at/updated_at`, `deleted_at` | FK нет: правило определяется `rule_snapshot.id` |
 | `scenario_attempts` | `id`, `tenant_id`, `scenario_id`, `employee_id`, `events` (JSON), `outcome`, `score`, `max_points`, `lessons` (JSON), `started_at`, `finished_at` | `scenario_id → scenarios.id ON DELETE CASCADE` |
 
 - Индексы: `documents(tenant_id, status, deleted_at)`, `security_rules(tenant_id, document_id, content_hash, deleted_at)`, `departments(tenant_id)`, `scenarios(tenant_id, status, topic, fingerprint, deleted_at)`, `scenario_attempts(tenant_id, employee_id)`, `scenario_attempts(scenario_id)`.
 - Связь сценария с правилом хранится только в `rule_snapshot.id` (колонки `rule_id` нет — это было дублирование). Выборка «сценарии правила» и скрытие при удалении правила идут по JSON; expression index по `rule_snapshot->>'id'` не ставим до появления объёма (M6+).
-- Миграции: `0001`…`0014` (head — `0014_room_contract`). `init.sql` дублирует DDL для первого старта контейнера и должен совпадать с ORM.
+- Миграции: `0001`…`0016` (head — `0016_attempt_failed`). `init.sql` дублирует DDL для первого старта контейнера и должен совпадать с ORM.
 - Строки `scenarios`, созданные до `0014`, имеют `room = NULL` и приложением не читаются (колонки плоского формата удалены); они не удаляются автоматически.
 - Векторного стора и `pg_trgm` нет: поиск по чанкам удалён вместе с хранением чанков.
 - Удаление мягкое: `deleted_at` у документов, правил и сценариев; строки остаются для аналитики и истории сотрудника. Нормальные запросы фильтруют `deleted_at IS NULL`, аналитика использует `include_deleted=True`.
@@ -162,7 +164,7 @@ Docker Compose (`docker-compose.yaml`, корень):
 | `GET` | `/api/v1/rules/{id}` | Правило |
 | `DELETE` | `/api/v1/rules/{id}` | Мягкое удаление правила и его сценариев |
 | `POST` | `/api/v1/scenarios/generate` | Комната по одному правилу (201, полный `Scenario`) |
-| `POST` | `/api/v1/scenarios/generate-all` | Пачка по правилам отдела (201) |
+| `POST` | `/api/v1/scenarios/generate-all` | Пачка по правилам отдела (`rooms_per_rule`, `benign_ratio`, `topic`) |
 | `GET` | `/api/v1/scenarios` | Публичный список комнат |
 | `GET` | `/api/v1/scenarios/{id}` | Публичная комната: `title`, `brief`, `objs`, без `goal`/`risk` |
 | `POST` | `/api/v1/scenarios/{id}/attempts` | Начать попытку сотрудника (201) |
@@ -179,7 +181,7 @@ Docker Compose (`docker-compose.yaml`, корень):
 
 ## 9. Тесты и CI
 
-Тесты: `tests/conftest.py` (SQLite + `Settings()`), `fakes.py` (`FakeLLMProvider`, валидная комната), `test_goals`, `test_room_validators`, `test_room_scoring`, `test_room_dedup`, `test_room_pipeline`, `test_scenario_service`, `test_attempts`, `test_security_rule_repository`, `test_department_repository`, `test_scenario_context`, `test_session_manager`, `test_chunking`, `test_parsers`, `test_ocr`, `test_text_repair`, `test_validator`, `test_soft_delete`.
+Тесты: `tests/conftest.py` (SQLite + `Settings()`), `fakes.py` (`FakeLLMProvider`, валидная комната), `test_intents`, `test_goals`, `test_room_validators`, `test_room_scoring`, `test_room_dedup`, `test_room_pipeline`, `test_scenario_service`, `test_attempts`, `test_security_rule_repository`, `test_department_repository`, `test_scenario_context`, `test_session_manager`, `test_chunking`, `test_parsers`, `test_ocr`, `test_text_repair`, `test_validator`, `test_soft_delete`.
 
 CI (`.github/workflows/ci.yml`, ADR-0006): `lint` (ruff, узкий набор правил), `test` (pytest), `compose` (валидация трёх профилей), `migrations` (ровно одна head), `docker` (сборка образа без push). CD нет.
 
@@ -200,10 +202,14 @@ CI (`.github/workflows/ci.yml`, ADR-0006): `lint` (ruff, узкий набор �
 | 7 | Сценарии до миграции `0014` имеют `room = NULL` | не читаются и не удаляются автоматически; удалить вручную |
 | 8 | Дедуп структурный, без эмбеддингов | перефразированная комната из других артефактов не отсекается (M9) |
 | 9 | Поиск сценариев по правилу идёт по `rule_snapshot->>'id'` без индекса | seq scan на больших объёмах; expression index — при объёме M6+ |
+| 10 | `topic` правила приходит от LoRA и может быть неверным (блокировка экрана → `passwords`); классификатор его исправляет, но только при первом разборе правила | у уже классифицированных правил тема остаётся прежней до повторной классификации |
+| 11 | Часть правил невыразима текущими каналами (`not_representable`) | попадают в `skipped_details`; покрытие растёт с реестром артефактов |
+| 12 | Артефакты и уроки пока общие (`fixtures/`), не на тенанта | целевая модель — сборка по ADR-0009; до неё контент одинаков у всех компаний |
+| 13 | `goal_actions` объявлены не у всех fixture-артефактов | остальные используют дефолт интента, который может быть неверным для конкретного объекта; при сборке по ADR-0009 заполнять `goal_actions` для каждого артефакта |
 
 ## 12. Ссылки
 
-- Решения: `docs/adr/` (0001 — история графа, 0007 — история комнаты, 0008 — актуальный контракт v1).
+- Решения: `docs/adr/` (0001 — история графа, 0007 — история комнаты, 0008 — контракт комнаты v1, 0009 — тенантная сборка контента, 0010 — brief пишет LLM).
 - План: `docs/plan-schedule.md` (M0–M11, гейты, порядок урезания).
 - Безопасность: `backlog_security.md`, `docs/threat-model.md`.
 - CI: `docs/ci.md`.

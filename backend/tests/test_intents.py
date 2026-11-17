@@ -51,7 +51,8 @@ async def test_classifier_ignores_an_unknown_topic():
         responses=[json.dumps({"intent": "phishing_email", "topic": "made_up"})]
     )
 
-    assert await RuleIntentClassifier(llm).classify(_rule()).topic is None
+    result = await RuleIntentClassifier(llm).classify(_rule())
+    assert result.topic is None
 
 
 async def test_classifier_retries_when_a_topic_is_returned_as_intent():
