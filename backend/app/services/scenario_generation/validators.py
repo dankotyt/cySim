@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from ...core.intents import INTENTS
 from ...models.scenario import (
     MAX_OBJECTS,
     MIN_OBJECTS,
@@ -35,6 +36,14 @@ KIND_VERBS: dict[str, frozenset[str]] = {
     "pdf": frozenset({"open", "inspect", "download", "report", "dismiss"}),
     "usb": frozenset({"open", "inspect", "download", "connect", "report", "dismiss"}),
     "call": frozenset({"answer", "inspect", "speak", "report", "dismiss"}),
+    "workstation": frozenset(
+        {"open", "inspect", "lock", "leave", "report", "dismiss"}
+    ),
+    "desk": frozenset(
+        {"open", "inspect", "lock", "leave", "shred", "report", "dismiss"}
+    ),
+    "door": frozenset({"open", "inspect", "scan", "escort", "report", "dismiss"}),
+    "badge": frozenset({"inspect", "wear", "share", "return", "report", "dismiss"}),
 }
 
 _VIA_RE = re.compile(r"^(?P<source>[A-Za-z0-9_-]+):link:(?P<index>\d+)$")
@@ -234,48 +243,47 @@ def _check_lessons(
 
 
 def _check_grounding(
-    resolved: dict[str, Artifact], rule_topic: str
+    resolved: dict[str, Artifact], intent: str
 ) -> list[Problem]:
     problems: list[Problem] = []
     grounded = False
     for artifact in resolved.values():
-        if rule_topic in artifact.topics:
+        if intent in artifact.intents:
             grounded = True
-        if any(risk.level == "hard" for risk in artifact.risk):
-            if rule_topic not in artifact.topics:
-                problems.append(
-                    Problem(
-                        "L2",
-                        "ungrounded_trap",
-                        f"artifact {artifact.id!r} has a hard trap but is not "
-                        f"tagged with rule topic {rule_topic!r}",
-                    )
+        elif any(risk.level == "hard" for risk in artifact.risk):
+            problems.append(
+                Problem(
+                    "L2",
+                    "ungrounded_trap",
+                    f"artifact {artifact.id!r} has a hard trap but is not "
+                    f"tagged with intent {intent!r}",
                 )
+            )
     if resolved and not grounded:
         problems.append(
             Problem(
                 "L2",
                 "ungrounded_room",
-                f"no object is tagged with rule topic {rule_topic!r}",
+                f"no object is tagged with intent {intent!r}",
             )
         )
     return problems
 
 
-def _check_solvability(goal, resolved: dict[str, Artifact]) -> list[Problem]:
+def _check_solvability(
+    goal, resolved: dict[str, Artifact], intent: str, benign: bool
+) -> list[Problem]:
     problems: list[Problem] = []
+    spec = INTENTS.get(intent)
 
     if evaluate_goal(goal, set()):
         problems.append(
             Problem("L3", "goal_trivially_true", "the goal holds before any action")
         )
 
-    reports_on_malicious = 0
     for verb, obj_id in sorted(goal.literals):
         artifact = resolved.get(obj_id)
-        if artifact is None:
-            continue
-        if verb == "report" and artifact.benign:
+        if artifact is not None and verb == "report" and artifact.benign:
             problems.append(
                 Problem(
                     "L3",
@@ -284,17 +292,60 @@ def _check_solvability(goal, resolved: dict[str, Artifact]) -> list[Problem]:
                     f"(false-positive training)",
                 )
             )
-        if verb == "report" and not artifact.benign:
-            reports_on_malicious += 1
 
-    if reports_on_malicious == 0:
-        problems.append(
-            Problem(
-                "L3",
-                "no_report_of_threat",
-                "the goal must require reporting at least one malicious object",
+    if spec is not None:
+        malicious = {
+            obj_id: artifact
+            for obj_id, artifact in resolved.items()
+            if not artifact.benign
+        }
+        benign_objects = {
+            obj_id: artifact
+            for obj_id, artifact in resolved.items()
+            if artifact.benign
+        }
+        if benign and malicious:
+            problems.append(
+                Problem(
+                    "L3",
+                    "unexpected_threat",
+                    "a benign room must not contain a malicious artifact",
+                )
             )
-        )
+        if not benign and not malicious:
+            problems.append(
+                Problem(
+                    "L3",
+                    "missing_threat",
+                    "a threat room must contain a malicious artifact",
+                )
+            )
+
+        targets = benign_objects if benign else malicious
+        declared = {
+            obj_id: artifact.goal_actions_for(intent)
+            for obj_id, artifact in targets.items()
+        }
+        declared = {
+            obj_id: actions for obj_id, actions in declared.items() if actions
+        }
+        if declared and not any(
+            (verb, obj_id) in goal.positive
+            for obj_id, actions in declared.items()
+            for verb in actions
+        ):
+            expected = "; ".join(
+                f"{obj_id}: {'/'.join(actions)}"
+                for obj_id, actions in declared.items()
+            )
+            problems.append(
+                Problem(
+                    "L3",
+                    "no_required_action",
+                    "the goal must use the action declared by the artifact "
+                    f"({expected})",
+                )
+            )
 
     for verb, obj_id in sorted(goal.positive):
         artifact = resolved.get(obj_id)
@@ -332,7 +383,11 @@ def _check_solvability(goal, resolved: dict[str, Artifact]) -> list[Problem]:
 
 
 def validate_room(
-    room: Room, *, rule_topic: str, resources: GenerationResources
+    room: Room,
+    *,
+    intent: str,
+    benign: bool,
+    resources: GenerationResources,
 ) -> ValidationResult:
     """Run L0-L3 checks over ``room`` and return every violation."""
     result = ValidationResult()
@@ -340,6 +395,18 @@ def validate_room(
     if room.v != ROOM_VERSION:
         result.problems.append(
             Problem("L0", "unsupported_version", f"v must be {ROOM_VERSION}, got {room.v}")
+        )
+    if intent not in INTENTS:
+        result.problems.append(
+            Problem("L0", "unknown_intent", f"intent {intent!r} is not defined")
+        )
+    if room.intent != intent:
+        result.problems.append(
+            Problem(
+                "L0",
+                "intent_mismatch",
+                f"room intent {room.intent!r} does not match {intent!r}",
+            )
         )
     if not MIN_OBJECTS <= len(room.objs) <= MAX_OBJECTS:
         result.problems.append(
@@ -364,6 +431,6 @@ def validate_room(
     objects = {obj.id: obj for obj in room.objs}
     result.problems.extend(_check_goal_literals(goal, objects))
     result.problems.extend(_check_lessons(resolved, resources))
-    result.problems.extend(_check_grounding(resolved, rule_topic))
-    result.problems.extend(_check_solvability(goal, resolved))
+    result.problems.extend(_check_grounding(resolved, intent))
+    result.problems.extend(_check_solvability(goal, resolved, intent, benign))
     return result

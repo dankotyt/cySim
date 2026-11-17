@@ -5,7 +5,7 @@
       "id": "em-0001",
       "kind": "email",
       "benign": false,
-      "topics": ["phishing", "email_security", "incident"],
+      "intents": ["attachment_macro"],
       "title": "СРОЧНО: сверка за Q3",
       "summary": "Письмо от «финансового директора» с вложением «Сверка_Q3.xlsm».",
       "attachments": ["Сверка_Q3.xlsm"],
@@ -18,9 +18,9 @@
       "id": "em-0002",
       "kind": "email",
       "benign": false,
-      "topics": ["phishing", "passwords", "authentication"],
+      "intents": ["phishing_email"],
       "title": "Истекает срок действия пароля",
-      "summary": "Письмо просит ответить на него, указав текущий пароль.",
+      "summary": "Письмо просит перейти по ссылке и подтвердить пароль на «портале».",
       "links": ["s-0001"],
       "risk": [
         {"on": "reply", "level": "hard", "pen": 10, "lesson": "L_CRED_REPLY"}
@@ -30,7 +30,7 @@
       "id": "em-0003",
       "kind": "email",
       "benign": false,
-      "topics": ["phishing", "personal_data", "misuse", "training", "other"],
+      "intents": ["attachment_macro"],
       "title": "Обновление данных для выплат",
       "summary": "Кадровая служба просит заполнить анкету с паспортными данными.",
       "links": ["s-0002"],
@@ -43,7 +43,7 @@
       "id": "em-0004",
       "kind": "email",
       "benign": true,
-      "topics": ["email_security", "training"],
+      "intents": ["phishing_email"],
       "title": "Дайджест ИБ за октябрь",
       "summary": "Внутренняя рассылка со ссылкой на базу знаний по безопасности.",
       "links": ["s-0003"]
@@ -52,7 +52,7 @@
       "id": "em-0005",
       "kind": "email",
       "benign": true,
-      "topics": ["personal_data", "training", "email_security"],
+      "intents": ["phishing_email"],
       "title": "Напоминание о тренинге по персональным данным",
       "summary": "HR напоминает о сроке прохождения курса; ссылок и вложений нет."
     },
@@ -60,19 +60,27 @@
       "id": "em-0006",
       "kind": "email",
       "benign": false,
-      "topics": ["access_control", "phishing", "incident"],
+      "intents": ["password_sharing"],
       "title": "Доступ к общему диску истёк",
       "summary": "Письмо требует подтвердить доступ, ответив на него учётными данными.",
       "risk": [
         {"on": "reply", "level": "hard", "pen": 10, "lesson": "L_CRED_REPLY"}
       ]
     },
+    {
+      "id": "em-0007",
+      "kind": "email",
+      "benign": true,
+      "intents": ["password_sharing"],
+      "title": "Плановое напоминание о смене пароля",
+      "summary": "Письмо просит сменить пароль в личном кабинете и не содержит ссылок."
+    },
 
     {
       "id": "s-0001",
       "kind": "site",
       "benign": false,
-      "topics": ["phishing", "passwords", "authentication", "access_control"],
+      "intents": ["credential_form"],
       "title": "Корпоративный вход",
       "summary": "Копия страницы входа: домен отличается одной буквой.",
       "risk": [
@@ -83,7 +91,7 @@
       "id": "s-0002",
       "kind": "site",
       "benign": false,
-      "topics": ["phishing", "misuse", "contractors_security", "management"],
+      "intents": ["invoice_change"],
       "title": "Смена банковских реквизитов",
       "summary": "Форма подтверждения новых реквизитов поставщика.",
       "risk": [
@@ -94,7 +102,7 @@
       "id": "s-0003",
       "kind": "site",
       "benign": true,
-      "topics": ["internet", "email_security", "other"],
+      "intents": ["credential_form"],
       "title": "Внутренний портал",
       "summary": "Новости компании и ссылки на внутренние сервисы."
     },
@@ -102,7 +110,7 @@
       "id": "s-0004",
       "kind": "site",
       "benign": false,
-      "topics": ["internet", "remote_access", "misuse"],
+      "intents": ["remote_tool"],
       "title": "Установка корневого сертификата",
       "summary": "Сайт требует скачать и установить сертификат для продолжения работы.",
       "risk": [
@@ -113,7 +121,7 @@
       "id": "s-0005",
       "kind": "site",
       "benign": true,
-      "topics": ["contractors_security", "management"],
+      "intents": ["invoice_change"],
       "title": "Официальный сайт поставщика",
       "summary": "Контакты, реквизиты и раздел поддержки."
     },
@@ -121,7 +129,7 @@
       "id": "s-0006",
       "kind": "site",
       "benign": false,
-      "topics": ["internet", "misuse", "monitoring"],
+      "intents": ["remote_tool"],
       "title": "Проверка браузера",
       "summary": "Страница предлагает скачать «обновление безопасности».",
       "risk": [
@@ -132,7 +140,7 @@
       "id": "s-0007",
       "kind": "site",
       "benign": false,
-      "topics": ["passwords", "authentication", "remote_access"],
+      "intents": ["credential_form"],
       "title": "Поддержка: подтвердите код",
       "summary": "Онлайн-чат просит ввести код из SMS для разблокировки.",
       "risk": [
@@ -143,16 +151,24 @@
       "id": "s-0008",
       "kind": "site",
       "benign": true,
-      "topics": ["training", "audit", "internet"],
+      "intents": ["credential_form"],
       "title": "База знаний по ИБ",
       "summary": "Статьи и памятки по информационной безопасности."
+    },
+    {
+      "id": "s-0009",
+      "kind": "site",
+      "benign": true,
+      "intents": ["remote_tool"],
+      "title": "Корпоративный каталог обновлений",
+      "summary": "Раздел с подписанными обновлениями, доступный только из внутренней сети."
     },
 
     {
       "id": "p-0001",
       "kind": "pdf",
       "benign": false,
-      "topics": ["phishing", "email_security"],
+      "intents": ["attachment_macro"],
       "title": "Инструкция по обновлению 1С",
       "summary": "PDF со встроенным скриптом и ссылкой на «патч».",
       "risk": [
@@ -164,7 +180,7 @@
       "id": "p-0002",
       "kind": "pdf",
       "benign": true,
-      "topics": ["training", "audit"],
+      "intents": ["attachment_macro"],
       "title": "Политика информационной безопасности",
       "summary": "Утверждённая политика компании в формате PDF."
     },
@@ -172,7 +188,7 @@
       "id": "p-0003",
       "kind": "pdf",
       "benign": false,
-      "topics": ["personal_data", "misuse", "audit"],
+      "intents": ["data_disclosure"],
       "title": "Список сотрудников для проверки",
       "summary": "Файл с персональными данными, разосланный без защиты.",
       "risk": [
@@ -183,7 +199,7 @@
       "id": "p-0004",
       "kind": "pdf",
       "benign": true,
-      "topics": ["backup", "monitoring", "other"],
+      "intents": ["data_disclosure"],
       "title": "График резервного копирования",
       "summary": "Внутренний регламент резервного копирования."
     },
@@ -191,7 +207,7 @@
       "id": "p-0005",
       "kind": "pdf",
       "benign": false,
-      "topics": ["phishing", "management"],
+      "intents": ["invoice_change"],
       "title": "Счёт на оплату №4471",
       "summary": "Счёт с изменёнными банковскими реквизитами.",
       "risk": [
@@ -203,7 +219,7 @@
       "id": "u-0001",
       "kind": "usb",
       "benign": false,
-      "topics": ["physical_security", "misuse"],
+      "intents": ["usb_found"],
       "title": "Найденная флешка «Зарплаты»",
       "summary": "Безымянный носитель с файлом «зарплаты.xlsx.exe».",
       "risk": [
@@ -214,7 +230,7 @@
       "id": "u-0002",
       "kind": "usb",
       "benign": true,
-      "topics": ["physical_security", "training"],
+      "intents": ["usb_found"],
       "title": "Корпоративный установщик",
       "summary": "Носитель ИТ-отдела с подписанным установщиком."
     },
@@ -222,7 +238,7 @@
       "id": "u-0003",
       "kind": "usb",
       "benign": false,
-      "topics": ["backup", "physical_security"],
+      "intents": ["usb_found"],
       "title": "Носитель «backup_2026»",
       "summary": "Флешка с autorun и архивом базы.",
       "risk": [
@@ -233,7 +249,7 @@
       "id": "u-0004",
       "kind": "usb",
       "benign": true,
-      "topics": ["physical_security", "contractors_security"],
+      "intents": ["usb_found"],
       "title": "Презентация с конференции",
       "summary": "Носитель с PDF-презентацией от партнёра."
     },
@@ -241,7 +257,7 @@
       "id": "u-0005",
       "kind": "usb",
       "benign": false,
-      "topics": ["physical_security", "incident"],
+      "intents": ["usb_found"],
       "title": "Флешка «ИТ-отдел: драйверы»",
       "summary": "Носитель с набором драйверов неизвестного происхождения.",
       "risk": [
@@ -253,7 +269,7 @@
       "id": "c-0001",
       "kind": "call",
       "benign": false,
-      "topics": ["passwords", "authentication", "incident"],
+      "intents": ["phone_code"],
       "title": "Звонок из «службы безопасности»",
       "summary": "Звонящий просит код подтверждения для «проверки учётной записи».",
       "risk": [
@@ -264,7 +280,7 @@
       "id": "c-0002",
       "kind": "call",
       "benign": true,
-      "topics": ["monitoring", "incident"],
+      "intents": ["phone_code"],
       "title": "Обратный звонок по заявке",
       "summary": "Поддержка уточняет детали тикета, код не запрашивает."
     },
@@ -272,7 +288,7 @@
       "id": "c-0003",
       "kind": "call",
       "benign": false,
-      "topics": ["contractors_security", "management"],
+      "intents": ["phone_code"],
       "title": "Звонок «из бухгалтерии»",
       "summary": "Просят подтвердить реквизиты и код из SMS.",
       "risk": [
@@ -283,7 +299,7 @@
       "id": "c-0004",
       "kind": "call",
       "benign": true,
-      "topics": ["physical_security", "other"],
+      "intents": ["phone_code"],
       "title": "Звонок курьера",
       "summary": "Курьер уточняет адрес доставки."
     },
@@ -291,7 +307,7 @@
       "id": "c-0005",
       "kind": "call",
       "benign": false,
-      "topics": ["remote_access", "misuse"],
+      "intents": ["remote_tool"],
       "title": "Звонок «из ИТ»",
       "summary": "Просят установить программу удалённого доступа и назвать код.",
       "links": ["s-0006"],
@@ -303,9 +319,135 @@
       "id": "c-0006",
       "kind": "call",
       "benign": true,
-      "topics": ["training", "personal_data"],
+      "intents": ["phone_code"],
       "title": "Опрос HR",
       "summary": "HR проводит опрос об обучении, данные карт не запрашивает."
+    },
+
+    {
+      "id": "ws-0001",
+      "kind": "workstation",
+      "benign": false,
+      "intents": ["unattended_session"],
+      "title": "Рабочая станция без блокировки",
+      "summary": "Сотрудник отошёл к окну приёма, сессия осталась открытой.",
+      "risk": [
+        {"on": "leave", "level": "hard", "pen": 10, "lesson": "L_SCREEN_LOCK"},
+        {"on": "open", "level": "soft", "pen": 2, "lesson": "L_SCREEN_LOCK"}
+      ]
+    },
+    {
+      "id": "ws-0002",
+      "kind": "workstation",
+      "benign": true,
+      "intents": ["unattended_session"],
+      "title": "Экран заблокирован",
+      "summary": "Перед уходом сотрудник заблокировал сессию."
+    },
+    {
+      "id": "ws-0003",
+      "kind": "workstation",
+      "benign": false,
+      "intents": ["shoulder_surfing"],
+      "title": "Экран с данными заявителя",
+      "summary": "На экране открыта карточка заявителя, посетитель стоит рядом.",
+      "risk": [
+        {"on": "leave", "level": "hard", "pen": 10, "lesson": "L_SHOULDER_SURF"},
+        {"on": "open", "level": "soft", "pen": 2, "lesson": "L_SHOULDER_SURF"}
+      ]
+    },
+
+    {
+      "id": "dk-0001",
+      "kind": "desk",
+      "benign": false,
+      "intents": ["clean_desk"],
+      "title": "Документы заявителя на столе",
+      "summary": "Паспорт и заявление лежат открытыми в зоне приёма.",
+      "risk": [
+        {"on": "leave", "level": "hard", "pen": 10, "lesson": "L_CLEAN_DESK"},
+        {"on": "open", "level": "soft", "pen": 2, "lesson": "L_CLEAN_DESK"}
+      ]
+    },
+    {
+      "id": "dk-0002",
+      "kind": "desk",
+      "benign": true,
+      "intents": ["clean_desk"],
+      "title": "Документы убраны в шкаф",
+      "summary": "По окончании приёма документы заперты в шкафу."
+    },
+    {
+      "id": "dk-0003",
+      "kind": "desk",
+      "benign": true,
+      "intents": ["shoulder_surfing"],
+      "title": "Рабочее место закрыто от посетителя",
+      "summary": "Документы и экран не видны посетителю у окна."
+    },
+
+    {
+      "id": "dr-0001",
+      "kind": "door",
+      "benign": false,
+      "intents": ["tailgating"],
+      "goal_actions": ["report"],
+      "title": "Посетитель без пропуска",
+      "summary": "Незнакомый человек пытается пройти в служебную зону вместе с вами.",
+      "risk": [
+        {"on": "open", "level": "hard", "pen": 10, "lesson": "L_TAILGATING"},
+        {"on": "escort", "level": "soft", "pen": 2, "lesson": "L_VISITOR_ESCORT"}
+      ]
+    },
+    {
+      "id": "dr-0002",
+      "kind": "door",
+      "benign": true,
+      "intents": ["tailgating"],
+      "title": "Сотрудник с пропуском",
+      "summary": "Коллега прикладывает свой пропуск к замку."
+    },
+    {
+      "id": "dr-0003",
+      "kind": "door",
+      "benign": false,
+      "intents": ["visitor_handling"],
+      "goal_actions": ["report"],
+      "title": "Курьер в служебной зоне",
+      "summary": "Курьер прошёл за стойку и ищет нужный кабинет.",
+      "risk": [
+        {"on": "open", "level": "hard", "pen": 10, "lesson": "L_VISITOR_ESCORT"},
+        {"on": "escort", "level": "soft", "pen": 2, "lesson": "L_VISITOR_ESCORT"}
+      ]
+    },
+    {
+      "id": "dr-0004",
+      "kind": "door",
+      "benign": true,
+      "intents": ["visitor_handling"],
+      "goal_actions": ["scan"],
+      "title": "Посетитель с временным пропуском",
+      "summary": "Посетитель предъявляет временный пропуск на входе."
+    },
+
+    {
+      "id": "bd-0001",
+      "kind": "badge",
+      "benign": false,
+      "intents": ["badge_sharing"],
+      "title": "Просят передать пропуск",
+      "summary": "Коллега просит пропуск «на пять минут», чтобы пройти в архив.",
+      "risk": [
+        {"on": "share", "level": "hard", "pen": 10, "lesson": "L_BADGE_SHARE"}
+      ]
+    },
+    {
+      "id": "bd-0002",
+      "kind": "badge",
+      "benign": true,
+      "intents": ["badge_sharing"],
+      "title": "Пропуск на видном месте",
+      "summary": "Сотрудник носит свой пропуск на груди."
     }
   ]
 }

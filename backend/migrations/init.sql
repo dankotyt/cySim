@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS security_rules (
     document_id  VARCHAR(36)  NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
     description  TEXT         NOT NULL,
     topic        VARCHAR(64)  NOT NULL,
+    intent       VARCHAR(64),
     audience     JSON         NOT NULL DEFAULT '[]'::json,
     content_hash VARCHAR(64)  NOT NULL,
     created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),

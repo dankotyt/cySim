@@ -14,6 +14,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from ...core.intents import INTENTS
 from ...models.scenario import ObjKind, Verb
 
 FIXTURE_BUILD_ID = "fx"
@@ -35,9 +36,13 @@ class Artifact(BaseModel):
     id: str = Field(min_length=1, max_length=64)
     kind: ObjKind
     benign: bool
-    topics: list[str] = Field(default_factory=list)
+    intents: list[str] = Field(default_factory=list)
     title: str = Field(min_length=1, max_length=200)
     summary: str = ""
+    # Actions that solve this artifact. Empty means "use the intent default";
+    # a curated override is required when the intent-level verb is wrong for
+    # this particular object (see ADR-0008, amendment 2026-11-17).
+    goal_actions: list[Verb] = Field(default_factory=list)
     risk: list[ArtifactRisk] = Field(default_factory=list)
     # Artifact ids reachable from this one; ``via: "<obj>:link:<index>"``
     # addresses this list.
@@ -60,6 +65,21 @@ class Artifact(BaseModel):
             if risk.on == verb:
                 return risk
         return None
+
+    def goal_actions_for(self, intent: str) -> tuple[str, ...]:
+        """Return the actions that satisfy a room built around this artifact.
+
+        The artifact owns the answer key: its ``goal_actions`` override the
+        coarse per-intent default. The default keeps legacy fixtures working
+        and is only a fallback, never a statement that the intent has one
+        universally correct action.
+        """
+        if self.goal_actions:
+            return tuple(self.goal_actions)
+        spec = INTENTS.get(intent)
+        if spec is None:
+            return ()
+        return (spec.benign_verb if self.benign else spec.threat_verb,)
 
 
 class Lesson(BaseModel):
@@ -97,9 +117,16 @@ class ArtifactRegistry:
         """Return every registered artifact."""
         return list(self._artifacts)
 
-    def for_topic(self, topic: str) -> list[Artifact]:
-        """Return artifacts whose topics include ``topic``."""
-        return [artifact for artifact in self._artifacts if topic in artifact.topics]
+    def for_intent(self, intent: str) -> list[Artifact]:
+        """Return artifacts that can depict ``intent``."""
+        return [artifact for artifact in self._artifacts if intent in artifact.intents]
+
+    def has_polarity(self, intent: str, benign: bool) -> bool:
+        """Return ``True`` when ``intent`` has an artifact of this polarity."""
+        return any(
+            artifact.benign == benign and intent in artifact.intents
+            for artifact in self._artifacts
+        )
 
     def __len__(self) -> int:
         return len(self._artifacts)
@@ -167,6 +194,11 @@ def load_resources(directory: Path | None = None) -> GenerationResources:
 
     lesson_ids = {lesson.id for lesson in lessons}
     for artifact in artifacts:
+        for intent in artifact.intents:
+            if intent not in INTENTS:
+                raise ValueError(
+                    f"artifact {artifact.id!r} uses unknown intent {intent!r}"
+                )
         for risk in artifact.risk:
             if risk.lesson not in lesson_ids:
                 raise ValueError(

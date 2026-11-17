@@ -73,6 +73,7 @@ class SecurityRuleORM(Base):
     )
     description: Mapped[str] = mapped_column(Text)
     topic: Mapped[str] = mapped_column(String(64), nullable=False)
+    intent: Mapped[str | None] = mapped_column(String(64), nullable=True)
     audience: Mapped[list] = mapped_column(JSON, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(

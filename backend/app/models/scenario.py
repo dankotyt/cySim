@@ -26,11 +26,30 @@ Verb = Literal[
     "speak",
     "report",
     "dismiss",
+    # Physical-security affordances (workstation, desk, door, badge).
+    "lock",
+    "leave",
+    "shred",
+    "scan",
+    "escort",
+    "wear",
+    "share",
+    "return",
 ]
 
-ObjKind = Literal["email", "site", "pdf", "usb", "call"]
+ObjKind = Literal[
+    "email",
+    "site",
+    "pdf",
+    "usb",
+    "call",
+    "workstation",
+    "desk",
+    "door",
+    "badge",
+]
 
-AttemptOutcome = Literal["in_progress", "safe", "recovered", "compromised"]
+AttemptOutcome = Literal["in_progress", "safe", "recovered", "failed"]
 
 ROOM_VERSION = 1
 BASE_POINTS = 10
@@ -67,6 +86,7 @@ class Room(BaseModel):
     brief: str = Field(min_length=20, max_length=400)
     diff: int = Field(ge=1, le=5)
     topic: str = ""
+    intent: str = ""
     objs: list[RoomObject] = Field(min_length=MIN_OBJECTS, max_length=MAX_OBJECTS)
     goal: str = Field(min_length=1, max_length=200)
 
@@ -137,6 +157,7 @@ class PublicScenario(BaseModel):
     title: str
     brief: str
     topic: str
+    intent: str = ""
     diff: int
     max_points: int
     objs: list[PublicRoomObject]
@@ -150,6 +171,7 @@ class PublicScenario(BaseModel):
             title=room.title,
             brief=room.brief,
             topic=scenario.topic,
+            intent=room.intent,
             diff=room.diff,
             max_points=scenario.max_points,
             created_at=scenario.created_at,
@@ -168,6 +190,7 @@ class GenerateScenarioRequest(BaseModel):
     tenant_id: str = DEFAULT_TENANT_ID
     rule_id: str
     department: str = "default"
+    benign: bool = False
 
 
 class GenerateScenarioResponse(BaseModel):
@@ -183,11 +206,13 @@ class GenerateScenarioResponse(BaseModel):
 
 
 class BatchGenerateRequest(BaseModel):
-    """Request body for generating one scenario per matching rule."""
+    """Request body for generating scenarios per matching rule."""
 
     tenant_id: str
     department: str = "default"
     topic: str | None = None
+    rooms_per_rule: int = Field(default=2, ge=1, le=5)
+    benign_ratio: float = Field(default=0.2, ge=0.0, le=1.0)
 
 
 class BatchGenerateResponse(BaseModel):
@@ -196,6 +221,7 @@ class BatchGenerateResponse(BaseModel):
     generated: list[Scenario]
     skipped: list[str]
     errors: list[dict[str, str]]
+    skipped_details: list[dict[str, str]] = Field(default_factory=list)
     total_generated: int
     total_skipped: int
 

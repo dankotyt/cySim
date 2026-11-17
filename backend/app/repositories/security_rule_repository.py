@@ -30,6 +30,7 @@ class SecurityRuleRepository:
             document_id=rule.document_id,
             description=rule.description,
             topic=rule.topic,
+            intent=rule.intent,
             audience=list(rule.audience),
             content_hash=rule.content_hash
             or rule_content_hash(rule.topic, rule.description),
@@ -42,6 +43,7 @@ class SecurityRuleRepository:
             id=orm.id,
             description=orm.description,
             topic=orm.topic,
+            intent=orm.intent or "",
             audience=list(orm.audience or []),
             document_id=orm.document_id,
             content_hash=orm.content_hash,
@@ -117,6 +119,23 @@ class SecurityRuleRepository:
         )
         orm = (await session.execute(statement)).scalar_one_or_none()
         return self._to_rule(orm) if orm is not None else None
+
+    async def set_classification(
+        self,
+        session: AsyncSession,
+        rule_id: str,
+        intent: str,
+        topic: str | None = None,
+    ) -> bool:
+        """Persist the resolved intent and (optionally) the corrected topic."""
+        orm = await session.get(SecurityRuleORM, rule_id)
+        if orm is None:
+            return False
+        orm.intent = intent
+        if topic:
+            orm.topic = topic
+        await session.flush()
+        return True
 
     async def delete(self, session: AsyncSession, rule_id: str) -> bool:
         """Soft-delete a single rule; return ``False`` when it is unknown.

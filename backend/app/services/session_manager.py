@@ -23,7 +23,7 @@ class SessionManager:
         self,
         llm_provider: LLMProvider,
         num_ctx: int,
-        threshold: float = 0.75,
+        threshold: float = 0.8,
     ) -> None:
         self._llm_provider = llm_provider
         self._num_ctx = num_ctx
@@ -70,7 +70,8 @@ class SessionManager:
         new_tokens = self._estimate_tokens(prompt)
         if self._current_tokens + new_tokens > self._reset_threshold():
             logger.info(
-                "Session reset at %d tokens (threshold=%d)",
+                "Session reset at %d tokens (threshold=%d); "
+                "re-initialising with the current prompt",
                 self._current_tokens,
                 self._reset_threshold(),
             )

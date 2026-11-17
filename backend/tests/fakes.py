@@ -3,16 +3,17 @@ import json
 
 from app.services.llm_provider import LLMProvider
 
-# A room that passes L0-L3 for the phishing rule used across tests: one
+# A room that passes L0-L3 for the attachment intent used across tests: one
 # malicious email with a hard attachment trap and a soft reply trap.
 VALID_ROOM = {
     "v": 1,
     "title": "Сверка за квартал",
     "brief": (
         "На рабочую почту пришло письмо с вложением от неизвестного отправителя. "
-        "Решите, что делать с письмом и вложением, действуя по политике компании."
+        "Что вы сделаете в этой ситуации?"
     ),
     "diff": 2,
+    "intent": "attachment_macro",
     "objs": [{"id": "o1", "kind": "email", "ref": "fx:email:em-0001"}],
     "goal": "report(o1)",
 }

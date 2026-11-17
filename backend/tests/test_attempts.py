@@ -113,7 +113,7 @@ async def test_soft_trap_returns_a_lesson(db_session):
     assert state.lessons[0].text
 
 
-async def test_hard_trap_compromises_the_attempt(db_session):
+async def test_hard_trap_fails_the_attempt_with_one_point(db_session):
     scenario = await _seed_scenario(db_session)
     service = _service()
     attempt = await service.start_attempt(
@@ -124,8 +124,12 @@ async def test_hard_trap_compromises_the_attempt(db_session):
         db_session, attempt.id, "acme", "download", "o1"
     )
 
-    assert finished.outcome == "compromised"
-    assert finished.score == 4
+    assert finished.outcome == "failed"
+    assert finished.score == 1
+
+    state = await service.attempt_state(db_session, attempt.id, "acme")
+    assert state.events[0].level == "hard"
+    assert state.events[0].pen == 0
 
 
 async def test_event_after_completion_is_rejected(db_session):

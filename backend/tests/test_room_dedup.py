@@ -30,10 +30,17 @@ def test_different_objects_change_the_fingerprint():
     assert room_fingerprint(_room()) != room_fingerprint(other)
 
 
-def test_different_topic_changes_the_fingerprint():
+def test_different_intent_changes_the_fingerprint():
     assert (
         room_fingerprint(_room())
-        != room_fingerprint(_room(topic="passwords"))
+        != room_fingerprint(_room(intent="phishing_email"))
+    )
+
+
+def test_topic_does_not_change_the_fingerprint():
+    assert (
+        room_fingerprint(_room())
+        == room_fingerprint(_room(topic="passwords"))
     )
 
 

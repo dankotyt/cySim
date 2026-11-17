@@ -17,9 +17,12 @@ from dataclasses import dataclass
 from typing import Any
 
 _TOKEN_RE = re.compile(
-    r"\s*(?:(?P<op>&&|\|\||!|\(|\))|(?P<lit>[a-z_]+\([A-Za-z0-9_-]+\)))"
+    r"\s*(?:(?P<op>&&|\|\||!|\(|\))"
+    r"|(?P<lit>[a-z_]+\s*\(\s*[A-Za-z0-9_-]+\s*\)))"
 )
-_LITERAL_RE = re.compile(r"(?P<verb>[a-z_]+)\((?P<obj>[A-Za-z0-9_-]+)\)")
+_LITERAL_RE = re.compile(
+    r"(?P<verb>[a-z_]+)\s*\(\s*(?P<obj>[A-Za-z0-9_-]+)\s*\)"
+)
 
 Literal = tuple[str, str]
 

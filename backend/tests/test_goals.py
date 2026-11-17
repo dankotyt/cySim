@@ -46,6 +46,12 @@ def test_literals_are_split_by_polarity():
     assert goal.literals == {("report", "m1"), ("reply", "m1")}
 
 
+def test_literals_tolerate_spaces_around_parentheses():
+    goal = parse_goal("report ( o1 ) && lock( o2 )")
+
+    assert goal.positive == {("report", "o1"), ("lock", "o2")}
+
+
 @pytest.mark.parametrize(
     "text",
     ["", "report", "report()", "report(m1) &&", "(report(m1)", "REPORT(m1)"],

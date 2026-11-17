@@ -11,8 +11,8 @@ import hashlib
 from ...models.scenario import Room, RoomObject
 from .registry import Artifact, GenerationResources
 
-MAX_CANDIDATES = 12
-BENIGN_SLOTS = 3
+MAX_CANDIDATES = 10
+DISTRACTORS = 2
 
 
 def _seeded_order(artifacts: list[Artifact], seed: str) -> list[Artifact]:
@@ -26,36 +26,57 @@ def _seeded_order(artifacts: list[Artifact], seed: str) -> list[Artifact]:
 
 
 def plan_candidates(
-    rule_topic: str,
+    intent: str,
     resources: GenerationResources,
     *,
+    benign: bool,
     seed: str,
+    exclude_refs: set[str] | None = None,
     limit: int = MAX_CANDIDATES,
 ) -> list[Artifact]:
-    """Return the artifacts shown to the model for this generation attempt."""
-    pool = resources.artifacts.for_topic(rule_topic)
-    malicious = [artifact for artifact in pool if not artifact.benign]
-    benign = [artifact for artifact in pool if artifact.benign]
+    """Return the artifacts shown to the model for this generation attempt.
 
-    if not malicious:
-        malicious = [
-            artifact
-            for artifact in resources.artifacts.all()
-            if not artifact.benign
-        ]
-    if not benign:
-        benign = [artifact for artifact in resources.artifacts.all() if artifact.benign]
+    Primary artifacts match the requested polarity. A threat room also gets a
+    couple of legitimate distractors; a benign room must contain only
+    legitimate objects (L3 ``unexpected_threat``), so it is filled from the
+    same safe pool instead.
+    ``exclude_refs`` removes objects already used by rejected rooms, so a retry
+    changes the composition instead of only reshuffling the catalog.
+    """
+    excluded = exclude_refs or set()
+    pool = resources.artifacts.for_intent(intent)
+    primary = [
+        artifact
+        for artifact in pool
+        if artifact.benign == benign and artifact.ref not in excluded
+    ]
+    if not primary:
+        primary = [artifact for artifact in pool if artifact.benign == benign]
+    if not primary:
+        return []
 
-    malicious_slots = max(limit - BENIGN_SLOTS, 1)
-    selected = _seeded_order(malicious, seed)[:malicious_slots]
-    selected += _seeded_order(benign, seed)[:BENIGN_SLOTS]
+    extra_pool = [
+        artifact
+        for artifact in pool
+        if artifact.benign and artifact.ref not in excluded
+    ]
+
+    primary_slots = max(limit - DISTRACTORS, 1)
+    selected = _seeded_order(primary, seed)[:primary_slots]
+    used = {artifact.ref for artifact in selected}
+    selected += [
+        artifact
+        for artifact in _seeded_order(extra_pool, seed)
+        if artifact.ref not in used
+    ][:DISTRACTORS]
     return selected[:limit]
 
 
 def fallback_room(
-    rule_topic: str,
+    intent: str,
     resources: GenerationResources,
     *,
+    benign: bool,
     seed: str,
     offset: int = 0,
 ) -> Room:
@@ -63,13 +84,23 @@ def fallback_room(
 
     Used when every generation attempt fails validation or deduplication, so a
     rule always yields a usable exercise instead of an error. ``offset`` walks
-    the malicious candidates, letting the caller skip a structural duplicate.
+    the candidates of the requested polarity, letting the caller skip a
+    structural duplicate.
     """
-    candidates = plan_candidates(rule_topic, resources, seed=seed)
-    malicious = [candidate for candidate in candidates if not candidate.benign]
-    if not malicious:
-        raise RuntimeError("fixture registry has no malicious artifact")
-    artifact = malicious[offset % len(malicious)]
+    pool = [
+        artifact
+        for artifact in resources.artifacts.for_intent(intent)
+        if artifact.benign == benign
+    ]
+    if not pool:
+        raise RuntimeError(f"no artifact with benign={benign} for intent {intent!r}")
+    artifact = _seeded_order(pool, seed)[offset % len(pool)]
+
+    actions = artifact.goal_actions_for(intent)
+    if not actions:
+        raise RuntimeError(
+            f"artifact {artifact.ref!r} declares no goal action for {intent!r}"
+        )
 
     title = f"Проверка: {artifact.title}"
     if len(title) > 120:
@@ -77,13 +108,19 @@ def fallback_room(
     return Room(
         v=1,
         title=title,
-        brief=(
-            f"В работе появился объект «{artifact.title}». Проверьте его и "
-            "поступите в соответствии с политикой информационной безопасности "
-            "компании."
-        ),
+        brief=_fallback_brief(artifact),
         diff=2,
-        topic=rule_topic,
+        intent=intent,
         objs=[RoomObject(id="o1", kind=artifact.kind, ref=artifact.ref)],
-        goal="report(o1)",
+        goal=f"{actions[0]}(o1)",
     )
+
+
+def _fallback_brief(artifact: Artifact) -> str:
+    """Neutral task text built from the artifact's own description."""
+    question = " Что вы сделаете в этой ситуации?"
+    situation = (artifact.summary or artifact.title).strip()
+    limit = 400 - len(question)
+    if len(situation) > limit:
+        situation = f"{situation[: limit - 3].rstrip()}..."
+    return f"{situation}{question}"

@@ -11,6 +11,7 @@ from typing import Literal, Protocol
 
 from pydantic import ValidationError
 
+from ...core.intents import INTENTS
 from ...core.logging import get_logger
 from ...models.document import SecurityRule
 from ...models.scenario import ROOM_VERSION, Room
@@ -25,7 +26,16 @@ from .validators import validate_room
 logger = get_logger(__name__)
 
 MAX_ATTEMPTS = 3
+MAX_DUPLICATE_ATTEMPTS = 2
 _ALLOWED_FIELDS = {"v", "title", "brief", "diff", "objs", "goal"}
+
+
+def _digest(room: Room) -> str:
+    """Compact rendering of a rejected room for the retry prompt."""
+    objects = "; ".join(
+        f"{obj.id}:{obj.kind}:{obj.ref}" for obj in room.objs
+    )
+    return f"title={room.title!r}; goal={room.goal!r}; objs=[{objects}]"
 
 
 class TextGenerator(Protocol):
@@ -34,6 +44,10 @@ class TextGenerator(Protocol):
     async def generate(
         self, prompt: str, *, system: str | None = None
     ) -> str: ...
+
+
+class NoArtifactsError(ValueError):
+    """Raised when the registry has no artifact for the intent/polarity."""
 
 
 @dataclass(frozen=True)
@@ -47,7 +61,7 @@ class RoomGenerationResult:
 
 
 class RoomGenerator:
-    """Generate a room for one rule, retrying on invalid or duplicate output."""
+    """Generate a room for one rule and one intent polarity."""
 
     def __init__(
         self,
@@ -61,34 +75,56 @@ class RoomGenerator:
         self,
         *,
         rule: SecurityRule,
+        intent: str,
+        benign: bool,
         tenant_id: str,
         department: str,
         recent_fingerprints: set[str] | None = None,
         max_attempts: int = MAX_ATTEMPTS,
     ) -> RoomGenerationResult:
-        """Generate and validate a room for ``rule``."""
+        """Generate and validate a room for ``rule`` as ``intent``."""
+        spec = INTENTS.get(intent)
+        if spec is None:
+            raise NoArtifactsError(f"unknown intent {intent!r}")
+
         recent = recent_fingerprints or set()
         problems: list[str] = []
+        rejected_refs: set[str] = set()
+        duplicate_streak = 0
         context = build_scenario_context([rule])
+        attempt = 0
 
         for attempt in range(1, max_attempts + 1):
-            seed = f"{tenant_id}:{rule.id}:{attempt}"
-            catalog = plan_candidates(rule.topic, self._resources, seed=seed)
+            seed = f"{tenant_id}:{rule.id}:{intent}:{benign}:{attempt}"
+            catalog = plan_candidates(
+                intent,
+                self._resources,
+                benign=benign,
+                seed=seed,
+                exclude_refs=rejected_refs,
+            )
+            if not catalog:
+                raise NoArtifactsError(
+                    f"no artifact with benign={benign} for intent {intent!r}"
+                )
             prompt = build_room_prompt(
                 context=context,
-                topic=rule.topic,
+                spec=spec,
                 department=department,
                 catalog=catalog,
+                benign=benign,
             )
             if problems:
                 prompt += (
                     "\n\n## Исправь ошибки предыдущего ответа\n"
+                    "Не повторяй отклонённую комнату: измени состав объектов "
+                    "и/или формулировку задания.\n"
                     + "\n".join(f"- {problem}" for problem in problems[-8:])
                 )
 
             raw = await self._llm.generate(prompt, system=ROOM_SYSTEM_PROMPT)
             try:
-                room = self._parse_room(raw, rule)
+                room = self._parse_room(raw, rule, intent)
             except (ValueError, ValidationError) as exc:
                 problems.append(f"L0 json: {exc}")
                 logger.warning(
@@ -98,10 +134,15 @@ class RoomGenerator:
                 continue
 
             result = validate_room(
-                room, rule_topic=rule.topic, resources=self._resources
+                room,
+                intent=intent,
+                benign=benign,
+                resources=self._resources,
             )
             if not result.ok:
                 problems.extend(result.lines())
+                problems.append(f"Отклонённая комната: {_digest(room)}")
+                rejected_refs.update(obj.ref for obj in room.objs)
                 logger.warning(
                     "Room attempt %d for rule=%s failed validation: %s",
                     attempt, rule.id, result.summary(),
@@ -110,48 +151,76 @@ class RoomGenerator:
 
             fingerprint = room_fingerprint(room)
             if fingerprint in recent:
+                duplicate_streak += 1
                 problems.append(
-                    "L4 duplicate: комната структурно совпадает с уже "
-                    "сгенерированной; выбери другие объекты или другую цель"
+                    "L4 duplicate: такая комната уже есть у тенанта. "
+                    f"Не повторяй её: {_digest(room)}"
                 )
+                rejected_refs.update(obj.ref for obj in room.objs)
                 logger.warning(
-                    "Room attempt %d for rule=%s is a structural duplicate",
-                    attempt, rule.id,
+                    "Room attempt %d for rule=%s is a structural duplicate "
+                    "(streak=%d)",
+                    attempt, rule.id, duplicate_streak,
                 )
+                if duplicate_streak >= MAX_DUPLICATE_ATTEMPTS:
+                    logger.warning(
+                        "Giving up on LLM variety for rule=%s: the catalog is "
+                        "too small to produce a new fingerprint",
+                        rule.id,
+                    )
+                    break
                 continue
 
             return RoomGenerationResult(
                 room=room, attempts=attempt, source="llm", problems=tuple(problems)
             )
 
-        room = self._fallback(rule, tenant_id, recent)
+        room = self._fallback(rule, intent, benign, tenant_id, recent)
         logger.warning(
             "Falling back to a deterministic room for rule=%s after %d attempts",
-            rule.id, max_attempts,
+            rule.id, attempt,
         )
         return RoomGenerationResult(
             room=room,
-            attempts=max_attempts,
+            attempts=attempt,
             source="fallback",
             problems=tuple(problems),
         )
 
     def _fallback(
-        self, rule: SecurityRule, tenant_id: str, recent: set[str]
+        self,
+        rule: SecurityRule,
+        intent: str,
+        benign: bool,
+        tenant_id: str,
+        recent: set[str],
     ) -> Room:
         """Pick the first deterministic fallback that is not a duplicate."""
-        seed = f"{tenant_id}:{rule.id}:fallback"
-        room = fallback_room(rule.topic, self._resources, seed=seed)
+        seed = f"{tenant_id}:{rule.id}:{intent}:{benign}:fallback"
+        room = fallback_room(
+            intent, self._resources, benign=benign, seed=seed
+        )
         for offset in range(1, 5):
             if room_fingerprint(room) not in recent:
                 break
             room = fallback_room(
-                rule.topic, self._resources, seed=seed, offset=offset
+                intent,
+                self._resources,
+                benign=benign,
+                seed=seed,
+                offset=offset,
+            )
+        room.topic = rule.topic
+        if room_fingerprint(room) in recent:
+            logger.warning(
+                "Fallback for rule=%s is also a structural duplicate; "
+                "the tenant already has every variation of this intent",
+                rule.id,
             )
         return room
 
     @staticmethod
-    def _parse_room(raw: str, rule: SecurityRule) -> Room:
+    def _parse_room(raw: str, rule: SecurityRule, intent: str) -> Room:
         """Parse the model output into a room, ignoring unknown fields."""
         data = parse_llm_json_object(raw)
         payload = {
@@ -159,8 +228,7 @@ class RoomGenerator:
         }
         payload.setdefault("v", ROOM_VERSION)
         if payload["v"] != ROOM_VERSION:
-            raise ValueError(
-                f"v must be {ROOM_VERSION}, got {payload['v']!r}"
-            )
+            raise ValueError(f"v must be {ROOM_VERSION}, got {payload['v']!r}")
         payload["topic"] = rule.topic
+        payload["intent"] = intent
         return Room.model_validate(payload)

@@ -1,10 +1,12 @@
 """Scenario generation and trainee-attempt business logic (room contract v1)."""
+import hashlib
 import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import Settings, get_settings
+from ..core.intents import INTENTS, NOT_REPRESENTABLE
 from ..core.logging import get_logger
 from ..models.document import SecurityRule
 from ..models.scenario import (
@@ -34,7 +36,10 @@ from .scenario_generation import (
     AppliedEvent,
     Evaluation,
     EventEngine,
+    IntentClassificationError,
+    NoArtifactsError,
     RoomGenerator,
+    RuleIntentClassifier,
     get_resources,
     room_fingerprint,
 )
@@ -58,6 +63,10 @@ class NoRulesFoundError(ScenarioServiceError):
 
 class RuleNotFoundError(ScenarioServiceError):
     """Raised when a rule id is unknown or belongs to another tenant."""
+
+
+class RuleNotRepresentableError(ScenarioServiceError):
+    """Raised when a rule cannot be trained as a room with current artifacts."""
 
 
 class DepartmentNotFoundError(ScenarioServiceError):
@@ -109,6 +118,7 @@ class ScenarioService:
             self.llm_provider, self.settings.llm_num_ctx
         )
         self.room_generator = room_generator or RoomGenerator(self.session_manager)
+        self.intent_classifier = RuleIntentClassifier(self.session_manager)
         self.repository = scenario_repository or ScenarioRepository()
         self.attempt_repository = attempt_repository or ScenarioAttemptRepository()
 
@@ -126,18 +136,35 @@ class ScenarioService:
         if rule is None:
             raise RuleNotFoundError(f"Rule not found: {request.rule_id!r}")
 
+        intent = await self._resolve_intent(session, rule)
+        if intent == NOT_REPRESENTABLE:
+            raise RuleNotRepresentableError(
+                f"Rule {rule.id} is not a trainable situation: {rule.description!r}"
+            )
+
         recent = await self.repository.recent_fingerprints(
             session, request.tenant_id
         )
-        scenario, source = await self._generate_for_rule(
-            session, rule, request.tenant_id, request.department, recent
-        )
+        try:
+            scenario, source = await self._generate_for_rule(
+                session,
+                rule,
+                intent,
+                request.benign,
+                request.tenant_id,
+                request.department,
+                recent,
+            )
+        except NoArtifactsError as exc:
+            raise RuleNotRepresentableError(str(exc)) from exc
+
         logger.info(
-            "Scenario generated: id=%s rule=%s tenant=%s department=%s source=%s",
+            "Scenario generated: id=%s rule=%s intent=%s benign=%s tenant=%s source=%s",
             scenario.id,
             rule.id,
+            intent,
+            request.benign,
             request.tenant_id,
-            request.department,
             source,
         )
         return GenerateScenarioResponse(
@@ -149,7 +176,7 @@ class ScenarioService:
     async def generate_all_scenarios(
         self, session: AsyncSession, request: BatchGenerateRequest
     ) -> BatchGenerateResponse:
-        """Generate one room per matching rule, isolating per-rule failures."""
+        """Generate rooms for matching rules, isolating per-rule failures."""
         allowed_topics = await self._resolve_allowed_topics(
             session, request.tenant_id, request.department
         )
@@ -165,8 +192,8 @@ class ScenarioService:
 
         filtered = [rule for rule in candidates if rule.topic in allowed_topics]
         logger.info(
-            "Batch generation: %d rules, %d allowed by department=%s",
-            len(rules), len(filtered), request.department,
+            "Batch generation: %d rules x %d rooms, %d allowed by department=%s",
+            len(rules), request.rooms_per_rule, len(filtered), request.department,
         )
 
         skipped: list[str] = []
@@ -184,38 +211,136 @@ class ScenarioService:
         recent = await self.repository.recent_fingerprints(
             session, request.tenant_id
         )
+        resources = get_resources()
         generated: list[Scenario] = []
         errors: list[dict[str, str]] = []
+        skipped_details: list[dict[str, str]] = []
 
         for rule in filtered:
             try:
-                async with session.begin_nested():
-                    scenario, _source = await self._generate_for_rule(
-                        session, rule, request.tenant_id, request.department, recent
+                intent = await self._resolve_intent(session, rule)
+                if intent not in INTENTS:
+                    skipped_details.append(
+                        {
+                            "rule_id": rule.id,
+                            "topic": rule.topic,
+                            "reason": "not_representable",
+                        }
                     )
-            except Exception as exc:  # noqa: BLE001 — batch must not abort on one rule
+                    continue
+
+                for room_index in range(request.rooms_per_rule):
+                    wants_benign = self._benign_slot(
+                        rule.id, room_index, request.benign_ratio
+                    )
+                    if not resources.artifacts.has_polarity(intent, wants_benign):
+                        skipped_details.append(
+                            {
+                                "rule_id": rule.id,
+                                "topic": rule.topic,
+                                "intent": intent,
+                                "reason": (
+                                    "no_benign_artifact"
+                                    if wants_benign
+                                    else "no_threat_artifact"
+                                ),
+                            }
+                        )
+                        continue
+                    try:
+                        async with session.begin_nested():
+                            scenario, _source = await self._generate_for_rule(
+                                session,
+                                rule,
+                                intent,
+                                wants_benign,
+                                request.tenant_id,
+                                request.department,
+                                recent,
+                            )
+                    except Exception as exc:  # noqa: BLE001 — one room must not abort
+                        errors.append(
+                            {
+                                "rule_id": rule.id,
+                                "topic": rule.topic,
+                                "error": str(exc),
+                            }
+                        )
+                        logger.exception(
+                            "Unexpected error for rule=%s intent=%s benign=%s",
+                            rule.id,
+                            intent,
+                            wants_benign,
+                        )
+                        continue
+                    else:
+                        generated.append(scenario)
+            except IntentClassificationError as exc:
+                logger.warning(
+                    "Intent classification failed for rule=%s: %s", rule.id, exc
+                )
+                skipped_details.append(
+                    {
+                        "rule_id": rule.id,
+                        "topic": rule.topic,
+                        "reason": exc.reason,
+                    }
+                )
+            except Exception as exc:  # noqa: BLE001 — batch must not abort
                 errors.append(
                     {"rule_id": rule.id, "topic": rule.topic, "error": str(exc)}
                 )
                 logger.exception(
-                    "Unexpected error for rule=%s topic=%s", rule.id, rule.topic,
+                    "Unexpected error while processing rule=%s", rule.id
                 )
-                continue
-            else:
-                generated.append(scenario)
 
         return BatchGenerateResponse(
             generated=generated,
             skipped=skipped,
             errors=errors,
+            skipped_details=skipped_details,
             total_generated=len(generated),
-            total_skipped=len(skipped),
+            total_skipped=len(skipped_details),
         )
+
+    async def _resolve_intent(
+        self, session: AsyncSession, rule: SecurityRule
+    ) -> str:
+        """Return the rule's intent, classifying it once and caching the result."""
+        if rule.intent in INTENTS or rule.intent == NOT_REPRESENTABLE:
+            return rule.intent
+        if rule.intent:
+            # A cached topic from the pre-intent era (or a bad model answer)
+            # must be reclassified instead of being trusted as an intent.
+            logger.warning(
+                "Discarding stale cached intent %r for rule=%s",
+                rule.intent,
+                rule.id,
+            )
+        classification = await self.intent_classifier.classify(rule)
+        await self.rule_repository.set_classification(
+            session, rule.id, classification.intent, classification.topic
+        )
+        rule.intent = classification.intent
+        if classification.topic:
+            rule.topic = classification.topic
+        return classification.intent
+
+    @staticmethod
+    def _benign_slot(rule_id: str, room_index: int, ratio: float) -> bool:
+        """Deterministically decide whether this room slot is a benign one."""
+        if ratio <= 0:
+            return False
+        digest = hashlib.sha256(f"{rule_id}:{room_index}".encode("utf-8")).digest()
+        bucket = int.from_bytes(digest[:4], "big") / 2**32
+        return bucket < ratio
 
     async def _generate_for_rule(
         self,
         session: AsyncSession,
         rule: SecurityRule,
+        intent: str,
+        benign: bool,
         tenant_id: str,
         department: str,
         recent_fingerprints: set[str],
@@ -223,6 +348,8 @@ class ScenarioService:
         """Generate, validate and persist one room."""
         result = await self.room_generator.generate(
             rule=rule,
+            intent=intent,
+            benign=benign,
             tenant_id=tenant_id,
             department=department,
             recent_fingerprints=recent_fingerprints,
@@ -461,7 +588,9 @@ class ScenarioService:
                     verb=event.verb,
                     obj=event.obj,
                     level=event.level,
-                    pen=event.pen,
+                    # A hard trap ends the room at 1 point; showing its
+                    # configured penalty would read as "−10 and continue".
+                    pen=0 if event.level == "hard" else event.pen,
                     lesson=event.lesson,
                 )
                 for event in applied
@@ -486,9 +615,7 @@ class ScenarioService:
     @staticmethod
     def _evaluate(scenario: Scenario, attempt: Attempt) -> Evaluation:
         engine = EventEngine(scenario.room, get_resources().artifacts)
-        return engine.evaluate(
-            [(event.verb, event.obj) for event in attempt.events]
-        )
+        return engine.evaluate(attempt.events)
 
     async def _get_attempt(
         self, session: AsyncSession, attempt_id: str, tenant_id: str

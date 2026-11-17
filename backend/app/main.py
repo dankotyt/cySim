@@ -23,6 +23,7 @@ from app.services.scenario_service import (
     DepartmentNotFoundError,
     NoRulesFoundError,
     RuleNotFoundError,
+    RuleNotRepresentableError,
     ScenarioGenerationError,
     ScenarioNotFoundError,
     ScenarioServiceError,
@@ -78,6 +79,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request, exc: RuleNotFoundError
     ) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @app.exception_handler(RuleNotRepresentableError)
+    async def handle_rule_not_representable(
+        request: Request, exc: RuleNotRepresentableError
+    ) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
 
     @app.exception_handler(ScenarioNotFoundError)
     async def handle_scenario_not_found(

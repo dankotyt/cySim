@@ -6,18 +6,25 @@ state to drift from the database.
 """
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Sequence
 
-from ...models.scenario import AttemptOutcome, Room, max_points_for
+from ...models.scenario import AttemptEvent, AttemptOutcome, Room, max_points_for
 from .goals import Goal, evaluate_goal, parse_goal
 from .registry import Artifact, ArtifactRegistry, ArtifactRisk
 
 FALSE_POSITIVE_LESSON = "L_FALSE_POSITIVE"
 FALSE_POSITIVE_PEN = 2
 BLIND_PENALTY = 2
-HARD_SCORE_RATIO = 0.3
+# Blind means "clicked everything in a burst", not "answered on the first try":
+# three actions with at most two seconds between them, without any inspection.
+BLIND_BURST_SECONDS = 2.0
+BLIND_BURST_EVENTS = 3
+# A hard trap ends the room at 1 point, not 0: zero stays reserved for an
+# attempt where no lesson/evaluation was produced, so a fatal mistake remains
+# distinguishable from missing data.
+HARD_FAIL_SCORE = 1
 
 
 @dataclass(frozen=True)
@@ -54,6 +61,24 @@ def _false_positive_risk() -> ArtifactRisk:
     )
 
 
+def _is_burst(times: Sequence[datetime]) -> bool:
+    """Return ``True`` when actions arrive as a rapid burst.
+
+    A deliberate first-try answer is not blind. Blind is the pattern of a
+    trainee clicking every affordance: at least :data:`BLIND_BURST_EVENTS`
+    actions, with at least ``BLIND_BURST_EVENTS - 1`` gaps at most
+    :data:`BLIND_BURST_SECONDS`.
+    """
+    if len(times) < BLIND_BURST_EVENTS:
+        return False
+    gaps = [
+        (current - previous).total_seconds()
+        for previous, current in zip(times, times[1:])
+    ]
+    rapid = sum(1 for gap in gaps if gap <= BLIND_BURST_SECONDS)
+    return rapid >= BLIND_BURST_EVENTS - 1
+
+
 class EventEngine:
     """Evaluate actions against one room."""
 
@@ -86,7 +111,7 @@ class EventEngine:
             return _false_positive_risk()
         return None
 
-    def evaluate(self, performed: Sequence[tuple[str, str]]) -> Evaluation:
+    def evaluate(self, performed: Sequence[AttemptEvent]) -> Evaluation:
         """Replay ``performed`` events and return the resulting state.
 
         Unknown objects and verbs are neutral and never dead-end a room. Once
@@ -95,6 +120,7 @@ class EventEngine:
         """
         max_points = self.max_points
         seen: set[tuple[str, str]] = set()
+        times: list[datetime] = []
         applied: list[AppliedEvent] = []
         lessons: list[str] = []
         penalty = 0
@@ -102,14 +128,19 @@ class EventEngine:
         hard_hit = False
         goal_met = False
 
-        for verb, obj_id in performed:
-            key = (verb, obj_id)
-            if key in seen:
-                continue
+        for event in performed:
             if hard_hit or goal_met:
                 break
+            # Duplicates and unknown objects still count towards the burst:
+            # repeatedly clicking the same button is exactly the behaviour
+            # the blind penalty is meant to catch.
+            times.append(event.at)
+            key = (event.verb, event.obj)
+            if key in seen:
+                continue
             seen.add(key)
 
+            verb, obj_id = event.verb, event.obj
             if verb == "inspect":
                 inspected = True
 
@@ -136,12 +167,12 @@ class EventEngine:
             if not hard_hit and evaluate_goal(self._goal, seen):
                 goal_met = True
 
-        blind = goal_met and not inspected
+        blind = goal_met and not inspected and _is_burst(times)
         score = max_points - penalty - (BLIND_PENALTY if blind else 0)
 
         if hard_hit:
-            outcome: AttemptOutcome = "compromised"
-            score = min(max(score, 0), math.floor(HARD_SCORE_RATIO * max_points))
+            outcome: AttemptOutcome = "failed"
+            score = HARD_FAIL_SCORE
         elif goal_met:
             outcome = "recovered" if penalty else "safe"
             score = min(max(score, 0), max_points)

@@ -13,9 +13,13 @@ from ...models.scenario import Room
 
 
 def room_fingerprint(room: Room) -> str:
-    """Return a stable hash of the room's structure."""
+    """Return a stable hash of the room's structure.
+
+    The intent, not the topic, identifies what the room trains: two rules with
+    different analytics topics can still produce the same exercise.
+    """
     payload = {
-        "topic": " ".join(room.topic.split()).casefold(),
+        "intent": " ".join(room.intent.split()).casefold(),
         "goal": " ".join(room.goal.split()).casefold(),
         "objs": sorted(f"{obj.kind}:{obj.ref}" for obj in room.objs),
     }

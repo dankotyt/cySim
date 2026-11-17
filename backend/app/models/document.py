@@ -74,6 +74,7 @@ class SecurityRule(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     description: str
     topic: str
+    intent: str = ""
     audience: list[str] = Field(default_factory=list)
     document_id: str
     content_hash: str = ""

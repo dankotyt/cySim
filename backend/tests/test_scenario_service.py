@@ -1,4 +1,6 @@
 """Tests for room generation, batch runs and scenario CRUD."""
+import json
+
 import pytest
 
 from app.models.department import Department
@@ -31,6 +33,7 @@ def _rule(**overrides):
     defaults = dict(
         description="Запрещено передавать учётные данные третьим лицам.",
         topic="phishing",
+        intent="attachment_macro",
         audience=["general"],
         document_id="doc-1",
     )
@@ -69,6 +72,7 @@ async def test_generate_scenario_persists_a_room(db_session):
     assert isinstance(response, GenerateScenarioResponse)
     assert response.status == "generated"
     assert response.scenario.room.v == 1
+    assert response.scenario.room.intent == "attachment_macro"
     assert response.scenario.room.goal == "report(o1)"
     assert response.scenario.room.title
     assert response.scenario.topic == "phishing"
@@ -141,7 +145,7 @@ async def test_generate_scenario_falls_back_when_llm_keeps_failing(db_session):
 async def test_generate_all_scenarios_generates_one_per_rule(db_session):
     await _seed_rules(db_session, topics=("phishing", "internet"))
     service = _service()
-    request = BatchGenerateRequest(tenant_id="acme")
+    request = BatchGenerateRequest(tenant_id="acme", rooms_per_rule=1, benign_ratio=0.0)
 
     response = await service.generate_all_scenarios(db_session, request)
 
@@ -154,7 +158,7 @@ async def test_generate_all_scenarios_generates_one_per_rule(db_session):
 async def test_batch_does_not_repeat_the_same_room(db_session):
     await _seed_rules(db_session, topics=("phishing", "phishing"))
     service = _service()
-    request = BatchGenerateRequest(tenant_id="acme")
+    request = BatchGenerateRequest(tenant_id="acme", rooms_per_rule=1, benign_ratio=0.0)
 
     response = await service.generate_all_scenarios(db_session, request)
 
@@ -163,9 +167,41 @@ async def test_batch_does_not_repeat_the_same_room(db_session):
     assert len(fingerprints) == 2
 
 
+async def test_batch_all_benign_produces_dismiss_goals(db_session):
+    await _seed_rules(db_session, topics=("phishing",))
+    service = _service()
+    request = BatchGenerateRequest(
+        tenant_id="acme", rooms_per_rule=2, benign_ratio=1.0
+    )
+
+    response = await service.generate_all_scenarios(db_session, request)
+
+    assert response.total_generated == 2
+    assert all(
+        scenario.room.goal.startswith("dismiss(")
+        for scenario in response.generated
+    )
+
+
+async def test_batch_ratio_zero_produces_threat_goals(db_session):
+    await _seed_rules(db_session, topics=("phishing",))
+    service = _service()
+    request = BatchGenerateRequest(
+        tenant_id="acme", rooms_per_rule=2, benign_ratio=0.0
+    )
+
+    response = await service.generate_all_scenarios(db_session, request)
+
+    assert response.total_generated == 2
+    assert all(
+        scenario.room.goal.startswith("report(")
+        for scenario in response.generated
+    )
+
+
 async def test_generate_all_scenarios_skips_when_no_rules(db_session):
     service = _service()
-    request = BatchGenerateRequest(tenant_id="acme")
+    request = BatchGenerateRequest(tenant_id="acme", rooms_per_rule=1, benign_ratio=0.0)
 
     response = await service.generate_all_scenarios(db_session, request)
 
@@ -179,7 +215,9 @@ async def test_generate_all_scenarios_skips_when_no_rules(db_session):
 async def test_generate_all_scenarios_topic_filter(db_session):
     await _seed_rules(db_session, topics=("phishing", "internet"))
     service = _service()
-    request = BatchGenerateRequest(tenant_id="acme", topic="phishing")
+    request = BatchGenerateRequest(
+        tenant_id="acme", topic="phishing", rooms_per_rule=1, benign_ratio=0.0
+    )
 
     response = await service.generate_all_scenarios(db_session, request)
 
@@ -196,7 +234,9 @@ async def test_generate_all_scenarios_filters_by_department(db_session):
     )
 
     service = _service()
-    request = BatchGenerateRequest(tenant_id="acme", department="hr")
+    request = BatchGenerateRequest(
+        tenant_id="acme", department="hr", rooms_per_rule=1, benign_ratio=0.0
+    )
 
     response = await service.generate_all_scenarios(db_session, request)
 
@@ -217,13 +257,70 @@ async def test_generate_all_scenarios_records_errors(db_session):
     await _seed_rules(db_session)
     service = _service()
     service.room_generator = _BrokenGenerator()
-    request = BatchGenerateRequest(tenant_id="acme")
+    request = BatchGenerateRequest(tenant_id="acme", rooms_per_rule=1, benign_ratio=0.0)
 
     response = await service.generate_all_scenarios(db_session, request)
 
     assert response.total_generated == 0
     assert response.total_skipped == 0
     assert any(error["topic"] == "phishing" for error in response.errors)
+
+
+async def test_batch_skips_rule_when_classification_fails(db_session):
+    await SecurityRuleRepository().create_many(
+        db_session, "acme", [_rule(intent="")]
+    )
+    service = _service(llm=FakeLLMProvider(responses=["bad", "bad"]))
+    request = BatchGenerateRequest(
+        tenant_id="acme", rooms_per_rule=1, benign_ratio=0.0
+    )
+
+    response = await service.generate_all_scenarios(db_session, request)
+
+    assert response.total_generated == 0
+    assert response.errors == []
+    assert response.total_skipped == 1
+    assert response.skipped_details[0]["reason"] == "invalid_json"
+
+
+async def test_batch_skips_rule_when_classifier_returns_a_topic(db_session):
+    await SecurityRuleRepository().create_many(
+        db_session, "acme", [_rule(intent="")]
+    )
+    topic_as_intent = json.dumps(
+        {"intent": "access_control", "topic": "access_control"}
+    )
+    service = _service(
+        llm=FakeLLMProvider(responses=[topic_as_intent, topic_as_intent])
+    )
+    request = BatchGenerateRequest(
+        tenant_id="acme", rooms_per_rule=1, benign_ratio=0.0
+    )
+
+    response = await service.generate_all_scenarios(db_session, request)
+
+    assert response.errors == []
+    assert response.total_skipped == 1
+    assert response.skipped_details[0]["reason"] == "invalid_intent"
+
+
+async def test_batch_reclassifies_a_stale_topic_cached_as_intent(db_session):
+    await SecurityRuleRepository().create_many(
+        db_session, "acme", [_rule(intent="access_control")]
+    )
+    valid = json.dumps(
+        {"intent": "attachment_macro", "topic": "phishing"}
+    )
+    service = _service(llm=FakeLLMProvider(responses=[valid]))
+    request = BatchGenerateRequest(
+        tenant_id="acme", rooms_per_rule=1, benign_ratio=0.0
+    )
+
+    response = await service.generate_all_scenarios(db_session, request)
+
+    assert response.errors == []
+    assert response.total_generated == 1
+    assert response.skipped_details == []
 
 
 async def test_get_scenario_not_found(db_session):
